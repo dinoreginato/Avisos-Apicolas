@@ -1,5 +1,8 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import MapView from './components/MapView';
+import AuthScreen from './components/AuthScreen';
+import UserProfile from './components/UserProfile';
+import AvisoEnvio from './components/AvisoEnvio';
 import { productosSAGCompletos, normalizarToxicidad, requiereAvisaje, ProductoSAG } from './data/sagProducts';
 import { productosSAGComplemento } from './data/sagProductsExtra';
 import { productosSAGMas } from './data/sagProductsMas';
@@ -14,17 +17,20 @@ import {
   ZONA_AVISAJE_KM,
   AvisoAplicacion
 } from './data/fields';
+import { User } from './types/user';
+import { getCurrentUser, logoutUser, getAvisosByUser } from './services/userService';
 
 // Combinar todos los productos del SAG
 const todosLosProductosSAG: ProductoSAG[] = [...productosSAGCompletos, ...productosSAGComplemento, ...productosSAGMas];
 
-type Tab = 'productos' | 'campos' | 'avisaje' | 'info' | 'actualizar';
+type Tab = 'productos' | 'campos' | 'avisaje' | 'info' | 'actualizar' | 'perfil';
 
 interface ProductoNormalizado extends ProductoSAG {
   requiereAviso: boolean;
 }
 
 function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('productos');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterToxicidad, setFilterToxicidad] = useState<string>('');
@@ -38,6 +44,28 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Cargar usuario al iniciar
+  useEffect(() => {
+    const user = getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
+    }
+  }, []);
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setCurrentUser(null);
+  };
+
+  // Si no hay usuario, mostrar pantalla de autenticación
+  if (!currentUser) {
+    return <AuthScreen onLogin={handleLogin} />;
+  }
 
   // Combinar y normalizar productos
   const productosNormalizados: ProductoNormalizado[] = useMemo(() => {
@@ -180,6 +208,7 @@ function App() {
               { id: 'avisaje' as Tab, label: 'Avisaje Apícola', icon: '📨' },
               { id: 'info' as Tab, label: 'Info Toxicidad', icon: 'ℹ️' },
               { id: 'actualizar' as Tab, label: 'Actualizar Datos', icon: '🔄' },
+              { id: 'perfil' as Tab, label: 'Mi Perfil', icon: '👤' },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -454,9 +483,25 @@ function App() {
             )}
 
             {/* Formulario de avisaje */}
-            {productoSeleccionado && productoSeleccionado.requiereAviso && (
+            {productoSeleccionado && productoSeleccionado.requiereAviso && campoSeleccionado && fechaAplicacion && horaAplicacion && (
+              <AvisoEnvio
+                user={currentUser}
+                producto={productoSeleccionado}
+                campo={campoSeleccionado}
+                apiariosEnZona={apiariosEnZona}
+                fechaAplicacion={fechaAplicacion}
+                horaAplicacion={horaAplicacion}
+                onAvisoEnviado={() => {
+                  setAvisoEnviado(true);
+                  setTimeout(() => setAvisoEnviado(false), 5000);
+                }}
+              />
+            )}
+
+            {/* Formulario de selección de datos */}
+            {productoSeleccionado && productoSeleccionado.requiereAviso && (!campoSeleccionado || !fechaAplicacion || !horaAplicacion) && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                <h3 className="font-bold text-gray-800 text-lg mb-4">📨 Generar Aviso de Aplicación</h3>
+                <h3 className="font-bold text-gray-800 text-lg mb-4">📝 Complete los datos para enviar aviso</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Campo a tratar</label>
@@ -485,19 +530,11 @@ function App() {
                       <option value="21:00-05:00">🌙 Noche (21:00-05:00)</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Medio verificable</label>
-                    <div className="space-y-1 mt-2">
-                      <label className="flex items-center gap-2 text-sm"><input type="checkbox" defaultChecked /> 📧 Email</label>
-                      <label className="flex items-center gap-2 text-sm"><input type="checkbox" defaultChecked /> 📱 SMS</label>
-                      <label className="flex items-center gap-2 text-sm"><input type="checkbox" /> 📝 Presencial</label>
-                    </div>
-                  </div>
                 </div>
 
                 {campoSeleccionado && (
                   <div className="mt-4 p-4 bg-amber-50 rounded-xl border border-amber-200">
-                    <h4 className="font-semibold text-amber-800 mb-2">🐝 Apicultores a notificar ({apiariosEnZona.length} en zona {ZONA_AVISAJE_KM} km)</h4>
+                    <h4 className="font-semibold text-amber-800 mb-2">🐝 Apicultores en zona ({apiariosEnZona.length} en zona {ZONA_AVISAJE_KM} km)</h4>
                     {apiariosEnZona.length > 0 ? (
                       <div className="space-y-2">
                         {apiariosEnZona.map(a => (
@@ -507,8 +544,8 @@ function App() {
                               <p className="text-xs text-gray-500">{a.apicultor} | {a.cantidadColmenas} colmenas | {calcularDistanciaKm(campoSeleccionado.latitud, campoSeleccionado.longitud, a.latitud, a.longitud).toFixed(1)} km</p>
                             </div>
                             <div className="text-right text-xs text-gray-500">
-                              <p>{a.contactoEmail}</p>
-                              <p>{a.contactoTelefono}</p>
+                              <p>📱 {a.contactoTelefono}</p>
+                              <p>📧 {a.contactoEmail}</p>
                             </div>
                           </div>
                         ))}
@@ -516,23 +553,6 @@ function App() {
                     ) : (
                       <p className="text-sm text-amber-600">No hay apiarios SIPEC en la zona de influencia.</p>
                     )}
-                  </div>
-                )}
-
-                <div className="mt-4 flex justify-end">
-                  <button onClick={handleEnviarAviso}
-                    disabled={!campoSeleccionado || !fechaAplicacion || !horaAplicacion}
-                    className="px-6 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:bg-gray-300 transition-colors">
-                    📨 Enviar Aviso a Apicultores
-                  </button>
-                </div>
-
-                {avisoEnviado && (
-                  <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl">
-                    <p className="font-bold text-green-700">✅ ¡Aviso enviado exitosamente!</p>
-                    <p className="text-sm text-green-600">
-                      Se notificó a {apiariosEnZona.length} apicultor(es) sobre {productoSeleccionado.nombreComercial} en {campoSeleccionado?.nombre}.
-                    </p>
                   </div>
                 )}
               </div>
@@ -721,6 +741,11 @@ function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Tab: Perfil */}
+        {activeTab === 'perfil' && (
+          <UserProfile user={currentUser} onUpdate={setCurrentUser} onLogout={handleLogout} />
         )}
       </main>
 

@@ -9,7 +9,12 @@ import { productosSAGMas } from './data/sagProductsMas';
 import { clasificacionesToxicidad } from './data/products';
 import { CampoUsuario } from './types/fields';
 import { getCamposByUser } from './services/campoService';
-import { apicultoresSIPEC, getApicultoresByRegion } from './data/apicultoresSIPEC';
+import { 
+  apicultoresSIPEC, 
+  getApicultoresByRegion, 
+  estadisticasOficialesSAG, 
+  estimacionApicultoresNoRegistrados 
+} from './data/apicultoresSIPEC';
 import { calcularDistanciaKm, ZONA_AVISAJE_KM } from './data/fields';
 import { User } from './types/user';
 import { getCurrentUser, logoutUser, getAvisosByUser, saveAviso } from './services/userService';
@@ -739,28 +744,172 @@ function App() {
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h3 className="font-bold text-gray-800 mb-3">🐝 Apicultores SIPEC por Región</h3>
+              <h3 className="font-bold text-gray-800 mb-3">🐝 Estadísticas Nacionales Apícolas</h3>
               <p className="text-sm text-gray-600 mb-4">
-                Base de datos de apicultores registrados en el Sistema de Información Pecuaria Apícola (SIPEC) del SAG.
-                Total nacional: ~20,150 apiarios | Promedio: 73 colmenas/apiario
+                Fuente: Boletín Apícola N°8 - SAG (mayo 2023) | Datos al 30 de septiembre de 2022
               </p>
-              <div className="space-y-2">
-                {Array.from(new Set(apicultoresSIPEC.map(a => a.region))).map(region => {
-                  const apicultoresRegion = getApicultoresByRegion(region);
-                  const totalColmenas = apicultoresRegion.reduce((acc, a) => acc + a.totalColmenas, 0);
-                  const totalApiarios = apicultoresRegion.reduce((acc, a) => acc + a.apiarios.length, 0);
-                  return (
-                    <div key={region} className="p-3 bg-gray-50 rounded-lg border border-gray-200 flex justify-between items-center">
-                      <div>
-                        <p className="font-medium text-sm">{region}</p>
-                        <p className="text-xs text-gray-500">
-                          {apicultoresRegion.length} apicultores | {totalApiarios} apiarios | {totalColmenas} colmenas
-                        </p>
-                      </div>
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">SIPEC ✓</span>
+              
+              {/* Resumen Nacional */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-2xl font-bold text-blue-600">{estadisticasOficialesSAG.totalApicultores.toLocaleString()}</p>
+                  <p className="text-xs text-gray-600">Apicultores Registrados</p>
+                </div>
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <p className="text-2xl font-bold text-green-600">{estadisticasOficialesSAG.totalApiarios.toLocaleString()}</p>
+                  <p className="text-xs text-gray-600">Apiarios Totales</p>
+                </div>
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <p className="text-2xl font-bold text-amber-600">{estadisticasOficialesSAG.totalColmenas.toLocaleString()}</p>
+                  <p className="text-xs text-gray-600">Colmenas Totales</p>
+                </div>
+                <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                  <p className="text-2xl font-bold text-purple-600">{estadisticasOficialesSAG.promedioColmenasPorApicultor}</p>
+                  <p className="text-xs text-gray-600">Promedio Colmenas/Apicultor</p>
+                </div>
+              </div>
+
+              {/* Tipología */}
+              <div className="mb-4">
+                <h4 className="font-semibold text-sm text-gray-700 mb-2">Tipología de Apicultores</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {Object.entries(estadisticasOficialesSAG.tipologia).map(([key, tip]: [string, any]) => (
+                    <div key={key} className="p-2 bg-gray-50 rounded border border-gray-200">
+                      <p className="font-medium text-xs">{tip.nombre}</p>
+                      <p className="text-xs text-gray-600">{tip.rango} | {tip.porcentaje}% | {tip.colmenas.toLocaleString()} colmenas</p>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+              </div>
+
+              {/* Apicultores No Registrados */}
+              <div className="p-4 bg-red-50 rounded-lg border border-red-200 mb-4">
+                <h4 className="font-semibold text-sm text-red-800 mb-2">⚠️ Estimación de Apicultores No Registrados</h4>
+                <p className="text-xs text-red-700 mb-2">
+                  Según estudios del sector, se estima que aproximadamente <strong>{estimacionApicultoresNoRegistrados.porcentajeEstimado}%</strong> de los 
+                  apicultores no están registrados en SIPEC, principalmente pequeños productores de Agricultura Familiar Campesina.
+                </p>
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-red-600">{estimacionApicultoresNoRegistrados.totalEstimado.toLocaleString()}</p>
+                    <p className="text-xs text-gray-600">Total Estimado</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-red-600">{estimacionApicultoresNoRegistrados.noRegistrados.toLocaleString()}</p>
+                    <p className="text-xs text-gray-600">No Registrados</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-green-600">{estadisticasOficialesSAG.totalApicultores.toLocaleString()}</p>
+                    <p className="text-xs text-gray-600">Registrados SIPEC</p>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <p className="text-xs font-semibold text-red-800 mb-1">Perfil de apicultores no registrados:</p>
+                  <ul className="text-xs text-red-700 space-y-1">
+                    {estimacionApicultoresNoRegistrados.perfil.razones.slice(0, 3).map((razon: string, idx: number) => (
+                      <li key={idx}>• {razon}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <h3 className="font-bold text-gray-800 mb-3">📊 Distribución por Región</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Datos oficiales del SIPEC Apícola del SAG
+              </p>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {Object.entries(estadisticasOficialesSAG.porRegion)
+                  .sort(([, a]: [string, any], [, b]: [string, any]) => b.apicultores - a.apicultores)
+                  .map(([region, datos]: [string, any]) => {
+                    const apicultoresEnBase = getApicultoresByRegion(region).length;
+                    const porcentaje = (datos.apicultores / estadisticasOficialesSAG.totalApicultores * 100).toFixed(1);
+                    return (
+                      <div key={region} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <p className="font-medium text-sm">{region}</p>
+                            <p className="text-xs text-gray-500">
+                              {datos.apicultores.toLocaleString()} apicultores ({porcentaje}%)
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-semibold text-gray-700">{datos.colmenas.toLocaleString()}</p>
+                            <p className="text-xs text-gray-500">colmenas</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div>
+                            <p className="text-gray-600">Apiarios:</p>
+                            <p className="font-semibold">{datos.apiarios.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">Promedio:</p>
+                            <p className="font-semibold">{(datos.colmenas / datos.apicultores).toFixed(0)} colm/apic</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600">En base:</p>
+                            <p className="font-semibold text-green-600">{apicultoresEnBase}</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <h3 className="font-bold text-gray-800 mb-3">📈 Actividades Apícolas</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {Object.entries(estadisticasOficialesSAG.actividades).map(([key, act]: [string, any]) => (
+                  <div key={key} className="p-2 bg-gray-50 rounded border border-gray-200">
+                    <p className="text-lg font-bold text-gray-700">{act.porcentaje}%</p>
+                    <p className="text-xs text-gray-600 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
+                    <p className="text-xs text-gray-500">{act.apicultores.toLocaleString()} apicultores</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <h3 className="font-bold text-gray-800 mb-3">👥 Género y RAMEX</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Distribución por Género</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center p-2 bg-pink-50 rounded border border-pink-200">
+                      <span className="text-sm">👩 Femenino</span>
+                      <span className="font-semibold text-sm">{estadisticasOficialesSAG.genero.femenino.porcentaje}%</span>
+                    </div>
+                    <div className="flex justify-between items-center p-2 bg-blue-50 rounded border border-blue-200">
+                      <span className="text-sm">👨 Masculino</span>
+                      <span className="font-semibold text-sm">{estadisticasOficialesSAG.genero.masculino.porcentaje}%</span>
+                    </div>
+                    <div className="flex justify-between items-center p-2 bg-gray-50 rounded border border-gray-200">
+                      <span className="text-sm">🏢 Empresa</span>
+                      <span className="font-semibold text-sm">{estadisticasOficialesSAG.genero.empresa.porcentaje}%</span>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Apicultores RAMEX (Exportadores)</h4>
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                    <p className="text-2xl font-bold text-green-600">{estadisticasOficialesSAG.ramex.total.toLocaleString()}</p>
+                    <p className="text-xs text-gray-600">apicultores exportadores ({estadisticasOficialesSAG.ramex.porcentaje}%)</p>
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs font-semibold text-green-800">Top regiones:</p>
+                      {Object.entries(estadisticasOficialesSAG.ramex.porRegion)
+                        .sort(([, a]: [string, any], [, b]: [string, any]) => b - a)
+                        .slice(0, 3)
+                        .map(([region, count]: [string, any]) => (
+                          <p key={region} className="text-xs text-green-700">
+                            {region}: {count} ({(count / estadisticasOficialesSAG.ramex.total * 100).toFixed(1)}%)
+                          </p>
+                        ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 

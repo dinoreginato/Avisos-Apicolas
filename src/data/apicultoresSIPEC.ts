@@ -1,4 +1,7 @@
 import { ApicultorSIPEC } from '../types/fields';
+import { apicultoresOHiggins } from './apicultoresOHiggins';
+import { apicultoresMaule } from './apicultoresMaule';
+import { apicultoresAraucania } from './apicultoresAraucania';
 
 // Base de datos de apicultores registrados en SIPEC por región
 // Fuente: SAG - Boletín Apícola N°8 (mayo 2023) - SIPEC Apícola
@@ -867,7 +870,16 @@ export const apicultoresSIPEC: ApicultorSIPEC[] = [
     ],
     totalColmenas: 15,
     sipecRegistrado: true
-  }
+  },
+  
+  // Apicultores expandidos de O'Higgins (30 apicultores adicionales)
+  ...apicultoresOHiggins,
+  
+  // Apicultores expandidos de Maule (10 apicultores adicionales)
+  ...apicultoresMaule,
+  
+  // Apicultores expandidos de Araucanía (10 apicultores adicionales)
+  ...apicultoresAraucania
 ];
 
 // Función para obtener apicultores por región

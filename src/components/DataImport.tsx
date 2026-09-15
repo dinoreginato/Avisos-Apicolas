@@ -56,25 +56,51 @@ export default function DataImport({ onImportComplete }: DataImportProps) {
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(',').map(v => v.trim());
       
+      // Soporte para múltiples formatos de columnas
+      const nombreIdx = headers.findIndex(h => h.includes('nombre') || h.includes('name'));
+      const emailIdx = headers.findIndex(h => h.includes('email') || h.includes('correo'));
+      const telefonoIdx = headers.findIndex(h => h.includes('telefono') || h.includes('celular') || h.includes('phone'));
+      const regionIdx = headers.findIndex(h => h.includes('region') || h.includes('región'));
+      const comunaIdx = headers.findIndex(h => h.includes('comuna'));
+      const colmenasIdx = headers.findIndex(h => h.includes('colmena') || h.includes('hive'));
+      const apiariosIdx = headers.findIndex(h => h.includes('apiario'));
+      
       const apicultor: ApicultorSIPEC = {
         id: `imported_${Date.now()}_${i}`,
-        nombre: values[headers.indexOf('nombre')] || '',
-        email: values[headers.indexOf('email')] || '',
-        telefono: values[headers.indexOf('telefono')] || '',
-        region: values[headers.indexOf('region')] || '',
-        comuna: values[headers.indexOf('comuna')] || '',
+        nombre: nombreIdx >= 0 ? values[nombreIdx] : '',
+        email: emailIdx >= 0 ? values[emailIdx] : '',
+        telefono: telefonoIdx >= 0 ? values[telefonoIdx] : '',
+        region: regionIdx >= 0 ? values[regionIdx] : '',
+        comuna: comunaIdx >= 0 ? values[comunaIdx] : '',
         apiarios: [],
-        totalColmenas: parseInt(values[headers.indexOf('totalcolmenas')] || '0'),
+        totalColmenas: colmenasIdx >= 0 ? parseInt(values[colmenasIdx] || '0') : 0,
         sipecRegistrado: true
       };
 
-      // Parsear apiarios si existen
-      const apiariosStr = values[headers.indexOf('apiarios')] || '';
-      if (apiariosStr) {
+      // Parsear apiarios si existen (formato JSON)
+      if (apiariosIdx >= 0 && values[apiariosIdx]) {
         try {
-          apicultor.apiarios = JSON.parse(apiariosStr);
+          apicultor.apiarios = JSON.parse(values[apiariosIdx]);
         } catch (e) {
           console.warn('Error al parsear apiarios para', apicultor.nombre);
+        }
+      }
+
+      // Si no hay apiarios en formato JSON, crear uno básico con coordenadas
+      if (apicultor.apiarios.length === 0) {
+        const latIdx = headers.findIndex(h => h.includes('lat'));
+        const lngIdx = headers.findIndex(h => h.includes('lng') || h.includes('lon'));
+        
+        if (latIdx >= 0 && lngIdx >= 0) {
+          apicultor.apiarios = [{
+            id: `api_${i}_1`,
+            nombre: `Apiario ${apicultor.nombre}`,
+            latitud: parseFloat(values[latIdx] || '0'),
+            longitud: parseFloat(values[lngIdx] || '0'),
+            comuna: apicultor.comuna,
+            region: apicultor.region,
+            cantidadColmenas: apicultor.totalColmenas
+          }];
         }
       }
 
@@ -106,21 +132,70 @@ export default function DataImport({ onImportComplete }: DataImportProps) {
   };
 
   const downloadTemplate = () => {
+    // Plantilla simple (un apiario por fila)
     const template = [
       {
         nombre: 'Juan Pérez',
         email: 'juan@ejemplo.cl',
         telefono: '+56912345678',
         region: "O'Higgins",
+        comuna: 'Requínoa',
+        latitud: -34.28,
+        longitud: -70.86,
+        colmenas: 150
+      },
+      {
+        nombre: 'María González',
+        email: 'maria@ejemplo.cl',
+        telefono: '+56987654321',
+        region: "O'Higgins",
         comuna: 'Rancagua',
-        totalcolmenas: 150,
+        latitud: -34.17,
+        longitud: -70.74,
+        colmenas: 200
+      }
+    ];
+
+    const csv = [
+      Object.keys(template[0]).join(','),
+      ...template.map(row => Object.values(row).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'plantilla_apicultores_simple.csv';
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const downloadTemplateAvanzada = () => {
+    // Plantilla avanzada (múltiples apiarios en JSON)
+    const template = [
+      {
+        nombre: 'Juan Pérez',
+        email: 'juan@ejemplo.cl',
+        telefono: '+56912345678',
+        region: "O'Higgins",
+        comuna: 'Requínoa',
+        totalcolmenas: 300,
         apiarios: JSON.stringify([
           {
             id: 'api1',
             nombre: 'Apiario Norte',
-            latitud: -34.15,
-            longitud: -70.76,
-            comuna: 'Rancagua',
+            latitud: -34.28,
+            longitud: -70.86,
+            comuna: 'Requínoa',
+            region: "O'Higgins",
+            cantidadColmenas: 150
+          },
+          {
+            id: 'api2',
+            nombre: 'Apiario Sur',
+            latitud: -34.29,
+            longitud: -70.87,
+            comuna: 'Requínoa',
             region: "O'Higgins",
             cantidadColmenas: 150
           }
@@ -137,7 +212,7 @@ export default function DataImport({ onImportComplete }: DataImportProps) {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'plantilla_apicultores.csv';
+    a.download = 'plantilla_apicultores_avanzada.csv';
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -154,12 +229,20 @@ export default function DataImport({ onImportComplete }: DataImportProps) {
           <p className="text-xs text-blue-700 mb-3">
             El archivo debe contener: nombre, email, telefono, region, comuna, totalcolmenas, apiarios (JSON)
           </p>
-          <button
-            onClick={downloadTemplate}
-            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            📄 Descargar Plantilla CSV
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={downloadTemplate}
+              className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              📄 Plantilla Simple
+            </button>
+            <button
+              onClick={downloadTemplateAvanzada}
+              className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              📄 Plantilla Avanzada
+            </button>
+          </div>
         </div>
 
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">

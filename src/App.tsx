@@ -1,20 +1,9 @@
 import { useState, useMemo, useRef } from 'react';
 import MapView from './components/MapView';
-import {
-  productosQuimicos as productosIniciales,
-  clasificacionesToxicidad,
-  ProductoQuimico,
-  ToxicidadAbejas,
-  CategoriaProducto
-} from './data/products';
-import {
-  parseCSV,
-  generarPlantillaCSV,
-  fetchFromSAGAPI,
-  fuentesDatosExternas,
-  calcularEstadisticas,
-  ImportResult
-} from './data/dataManager';
+import { productosSAGCompletos, normalizarToxicidad, requiereAvisaje, ProductoSAG } from './data/sagProducts';
+import { productosSAGComplemento } from './data/sagProductsExtra';
+import { productosSAGMas } from './data/sagProductsMas';
+import { clasificacionesToxicidad } from './data/products';
 import {
   camposEjemplo,
   apiariosEjemplo,
@@ -26,68 +15,110 @@ import {
   AvisoAplicacion
 } from './data/fields';
 
+// Combinar todos los productos del SAG
+const todosLosProductosSAG: ProductoSAG[] = [...productosSAGCompletos, ...productosSAGComplemento, ...productosSAGMas];
+
 type Tab = 'productos' | 'campos' | 'avisaje' | 'info' | 'actualizar';
+
+interface ProductoNormalizado extends ProductoSAG {
+  requiereAviso: boolean;
+}
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('productos');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategoria, setFilterCategoria] = useState<CategoriaProducto | ''>('');
-  const [filterToxicidad, setFilterToxicidad] = useState<ToxicidadAbejas | ''>('');
+  const [filterToxicidad, setFilterToxicidad] = useState<string>('');
+  const [filterAvisaje, setFilterAvisaje] = useState<string>('');
   const [campoSeleccionado, setCampoSeleccionado] = useState<Campo | null>(null);
-  const [productoSeleccionado, setProductoSeleccionado] = useState<ProductoQuimico | null>(null);
+  const [productoSeleccionado, setProductoSeleccionado] = useState<ProductoNormalizado | null>(null);
   const [avisoEnviado, setAvisoEnviado] = useState(false);
   const [avisos, setAvisos] = useState<AvisoAplicacion[]>([]);
   const [fechaAplicacion, setFechaAplicacion] = useState('');
   const [horaAplicacion, setHoraAplicacion] = useState('');
-  const [productos, setProductos] = useState<ProductoQuimico[]>(productosIniciales);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [isFetching, setIsFetching] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Filtrar productos
-  const productosFiltrados = useMemo(() => {
-    return productos.filter(p => {
-      const matchSearch = p.nombreComercial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.ingredienteActivo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.empresa.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchCategoria = !filterCategoria || p.categoria === filterCategoria;
-      const matchToxicidad = !filterToxicidad || p.toxicidadAbejas === filterToxicidad;
-      return matchSearch && matchCategoria && matchToxicidad;
-    });
-  }, [productos, searchTerm, filterCategoria, filterToxicidad]);
+  // Combinar y normalizar productos
+  const productosNormalizados: ProductoNormalizado[] = useMemo(() => {
+    return todosLosProductosSAG.map(p => ({
+      ...p,
+      toxicidadAbejas: normalizarToxicidad(p.toxicidadAbejas),
+      requiereAviso: requiereAvisaje(p.avisaje)
+    }));
+  }, []);
 
-  // Apiarios en zona del campo seleccionado
+  // Estadísticas
+  const stats = useMemo(() => {
+    const porToxicidad: Record<string, number> = {};
+    let requierenAviso = 0;
+    let noRequierenAviso = 0;
+
+    productosNormalizados.forEach(p => {
+      porToxicidad[p.toxicidadAbejas] = (porToxicidad[p.toxicidadAbejas] || 0) + 1;
+      if (p.requiereAviso) requierenAviso++;
+      else noRequierenAviso++;
+    });
+
+    return {
+      total: productosNormalizados.length,
+      porToxicidad,
+      requierenAviso,
+      noRequierenAviso
+    };
+  }, [productosNormalizados]);
+
+  // Filtrar productos
+  const productosFiltrados: ProductoNormalizado[] = useMemo(() => {
+    return productosNormalizados.filter(p => {
+      const matchSearch = p.nombreComercial.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.numeroSAG.includes(searchTerm);
+      const matchToxicidad = !filterToxicidad || p.toxicidadAbejas === filterToxicidad;
+      const matchAvisaje = !filterAvisaje || 
+        (filterAvisaje === 'si' && p.requiereAviso) ||
+        (filterAvisaje === 'no' && !p.requiereAviso);
+      return matchSearch && matchToxicidad && matchAvisaje;
+    });
+  }, [productosNormalizados, searchTerm, filterToxicidad, filterAvisaje]);
+
+  // Paginación
+  const totalPages = Math.ceil(productosFiltrados.length / itemsPerPage);
+  const productosPaginados: ProductoNormalizado[] = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return productosFiltrados.slice(start, start + itemsPerPage);
+  }, [productosFiltrados, currentPage]);
+
+  // Apiarios en zona
   const apiariosEnZona = useMemo(() => {
     if (!campoSeleccionado) return [];
     return getApiariosEnZona(campoSeleccionado, apiariosEjemplo);
   }, [campoSeleccionado]);
 
-  // Estadísticas
-  const stats = useMemo(() => calcularEstadisticas(productos), [productos]);
-
-  // Verificar si se requiere aviso
-  const requiereAviso = useMemo(() => {
-    if (!productoSeleccionado) return false;
-    return productoSeleccionado.requiereAviso;
-  }, [productoSeleccionado]);
-
-  const getToxicidadColor = (nivel: ToxicidadAbejas) => {
-    return clasificacionesToxicidad.find(c => c.nivel === nivel)?.color || '#666';
+  const getToxicidadColor = (nivel: string) => {
+    if (nivel.includes('Muy tóxico')) return '#dc2626';
+    if (nivel.includes('Moderadamente')) return '#d97706';
+    if (nivel.includes('Ligeramente')) return '#ca8a04';
+    if (nivel.includes('Virtualmente')) return '#16a34a';
+    if (nivel.includes('proceso')) return '#6b7280';
+    return '#9ca3af';
   };
 
-  const getToxicidadLabel = (nivel: ToxicidadAbejas) => {
-    return clasificacionesToxicidad.find(c => c.nivel === nivel)?.label || nivel;
+  const getToxicidadBadge = (nivel: string) => {
+    if (nivel.includes('Muy tóxico')) return { bg: 'bg-red-100', text: 'text-red-700', label: 'Muy Tóxico' };
+    if (nivel.includes('Moderadamente')) return { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Moderadamente Tóxico' };
+    if (nivel.includes('Ligeramente')) return { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Ligeramente Tóxico' };
+    if (nivel.includes('Virtualmente')) return { bg: 'bg-green-100', text: 'text-green-700', label: 'Virtualmente No Tóxico' };
+    if (nivel.includes('proceso')) return { bg: 'bg-gray-100', text: 'text-gray-600', label: 'En Actualización' };
+    return { bg: 'bg-gray-100', text: 'text-gray-600', label: nivel };
   };
 
   const handleEnviarAviso = () => {
     if (!campoSeleccionado || !productoSeleccionado || !fechaAplicacion || !horaAplicacion) return;
-    if (!requiereAviso) return;
 
     const nuevoAviso: AvisoAplicacion = {
       id: `aviso-${Date.now()}`,
       campoId: campoSeleccionado.id,
-      productoId: productoSeleccionado.id,
+      productoId: productoSeleccionado.numeroSAG || '',
       fechaAplicacion,
       fechaAviso: new Date().toISOString().split('T')[0],
       coordenadas: { lat: campoSeleccionado.latitud, lng: campoSeleccionado.longitud },
@@ -105,44 +136,14 @@ function App() {
   const handleImportCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      const result = parseCSV(text);
-      setImportResult(result);
-      
-      if (result.productos.length > 0) {
-        // Agregar productos importados a la base de datos
-        setProductos(prev => [...prev, ...result.productos]);
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleDownloadTemplate = () => {
-    const template = generarPlantillaCSV();
-    const blob = new Blob([template], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'plantilla_productos_sag.csv';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleFetchFromSAG = async () => {
-    setIsFetching(true);
-    const result = await fetchFromSAGAPI();
-    setImportResult(result);
-    setIsFetching(false);
+    alert(`Archivo "${file.name}" cargado. En producción, los datos se integrarían con la base de datos del SAG.`);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-amber-50 to-blue-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-green-100">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center text-2xl shadow-lg">
@@ -150,19 +151,18 @@ function App() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-800">Sistema de Avisaje Apícola</h1>
-                <p className="text-xs text-gray-500">Conectado con base de datos SAG - Ley Apícola N°21.489</p>
+                <p className="text-xs text-gray-500">Base de datos SAG - Res. 7068/2024 | Ley Apícola N°21.489</p>
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="bg-green-50 px-3 py-2 rounded-lg border border-green-200">
-                <span className="text-xs text-green-700 font-medium">
-                  📊 {stats.totalProductos} productos | ⚠️ {stats.requierenAviso} requieren aviso
+              <div className="bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
+                <span className="text-xs text-green-700 font-bold">
+                  📊 {stats.total} productos | ⚠️ {stats.requierenAviso} requieren avisaje
                 </span>
               </div>
-              <div className="hidden md:flex items-center gap-2 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
-                <span className="text-amber-600">⚠️</span>
-                <span className="text-xs text-amber-700 font-medium">
-                  Aviso obligatorio: Tóxicos 26/01/2026 | Moderados 26/04/2026
+              <div className="bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+                <span className="text-xs text-blue-700 font-medium">
+                  🔄 Fuente: Power BI SAG (30/04/2026)
                 </span>
               </div>
             </div>
@@ -170,12 +170,12 @@ function App() {
         </div>
       </header>
 
-      {/* Navigation Tabs */}
+      {/* Navigation */}
       <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex gap-1 overflow-x-auto">
             {[
-              { id: 'productos' as Tab, label: 'Productos SAG', icon: '🧪' },
+              { id: 'productos' as Tab, label: 'Productos SAG', icon: '🧪', count: stats.total },
               { id: 'campos' as Tab, label: 'Campos y Mapa', icon: '🗺️' },
               { id: 'avisaje' as Tab, label: 'Avisaje Apícola', icon: '📨' },
               { id: 'info' as Tab, label: 'Info Toxicidad', icon: 'ℹ️' },
@@ -183,7 +183,7 @@ function App() {
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => { setActiveTab(tab.id); setCurrentPage(1); }}
                 className={`px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'border-green-500 text-green-700 bg-green-50'
@@ -192,6 +192,7 @@ function App() {
               >
                 <span className="mr-1.5">{tab.icon}</span>
                 {tab.label}
+                {tab.count && <span className="ml-1.5 text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded-full">{tab.count}</span>}
               </button>
             ))}
           </div>
@@ -199,127 +200,134 @@ function App() {
       </nav>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-4 py-4">
         {/* Tab: Productos SAG */}
         {activeTab === 'productos' && (
-          <div className="space-y-4">
+          <div className="space-y-3">
+            {/* Filtros */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-              <h2 className="text-lg font-bold text-gray-800 mb-3">
-                🧪 Base de Datos de Productos Fitosanitarios - SAG
-              </h2>
-              <p className="text-sm text-gray-600 mb-4">
-                Consulta los {stats.totalProductos} productos químicos registrados, sus ingredientes activos y clasificación de toxicidad para abejas según la Resolución 7068/2024.
-              </p>
-
-              {/* Filtros */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-bold text-gray-800">🧪 Clasificación Ecotoxicológica Abejas - SAG</h2>
+                <span className="text-xs text-gray-500">Res. 7068/2024</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <input
                   type="text"
-                  placeholder="Buscar por nombre, ingrediente o empresa..."
+                  placeholder="Buscar por N° SAG o nombre comercial..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                  className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
                 />
                 <select
-                  value={filterCategoria}
-                  onChange={(e) => setFilterCategoria(e.target.value as CategoriaProducto | '')}
-                  className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
-                >
-                  <option value="">Todas las categorías</option>
-                  <option value="Insecticida">Insecticida</option>
-                  <option value="Fungicida">Fungicida</option>
-                  <option value="Herbicida">Herbicida</option>
-                  <option value="Acaricida">Acaricida</option>
-                  <option value="Nematicida">Nematicida</option>
-                </select>
-                <select
                   value={filterToxicidad}
-                  onChange={(e) => setFilterToxicidad(e.target.value as ToxicidadAbejas | '')}
+                  onChange={(e) => { setFilterToxicidad(e.target.value); setCurrentPage(1); }}
                   className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
                 >
                   <option value="">Todas las toxicidades</option>
-                  <option value="muy_tóxico">Muy Tóxico</option>
-                  <option value="tóxico">Tóxico</option>
-                  <option value="moderadamente_tóxico">Moderadamente Tóxico</option>
-                  <option value="prácticamente_no_tóxico">Prácticamente No Tóxico</option>
+                  <option value="Muy tóxico">Muy Tóxico</option>
+                  <option value="Moderadamente tóxico">Moderadamente Tóxico</option>
+                  <option value="Ligeramente tóxico">Ligeramente Tóxico</option>
+                  <option value="Virtualmente no tóxico">Virtualmente No Tóxico</option>
+                  <option value="En proceso de actualización etiqueta">En Actualización</option>
                 </select>
+                <select
+                  value={filterAvisaje}
+                  onChange={(e) => { setFilterAvisaje(e.target.value); setCurrentPage(1); }}
+                  className="px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="">Todos</option>
+                  <option value="si">⚠️ Sí requiere avisaje</option>
+                  <option value="no">✓ No requiere avisaje</option>
+                </select>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">{productosFiltrados.length} resultados</span>
+                  {searchTerm && (
+                    <button onClick={() => { setSearchTerm(''); setFilterToxicidad(''); setFilterAvisaje(''); setCurrentPage(1); }}
+                      className="text-xs text-red-500 hover:text-red-700">Limpiar</button>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Resultados */}
+            {/* Tabla de productos */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-200">
+                  <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
                     <tr>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700">Producto</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700">Ingrediente Activo</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700">Categoría</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700">Toxicidad Abejas</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700">DL50 Contacto</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700">Aviso</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700">Acción</th>
+                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">N° SAG</th>
+                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">Nombre Comercial</th>
+                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">Toxicidad Abejas</th>
+                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">Avisaje</th>
+                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">Acción</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {productosFiltrados.slice(0, 50).map(producto => (
-                      <tr key={producto.id} className={`hover:bg-gray-50 transition-colors ${productoSeleccionado?.id === producto.id ? 'bg-green-50' : ''}`}>
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-gray-800">{producto.nombreComercial}</div>
-                          <div className="text-xs text-gray-500">{producto.empresa} | {producto.registroSAG}</div>
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">{producto.ingredienteActivo}</td>
-                        <td className="px-4 py-3">
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                            {producto.categoria}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className="px-2.5 py-1 rounded-full text-xs font-bold text-white"
-                            style={{ backgroundColor: getToxicidadColor(producto.toxicidadAbejas) }}
-                          >
-                            {getToxicidadLabel(producto.toxicidadAbejas)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-gray-600 text-xs">{producto.dl50Contacto}</td>
-                        <td className="px-4 py-3">
-                          {producto.requiereAviso ? (
-                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                              ⚠️ Sí
+                  <tbody className="divide-y divide-gray-50">
+                    {productosPaginados.map(producto => {
+                      const badge = getToxicidadBadge(producto.toxicidadAbejas);
+                      return (
+                        <tr key={producto.numeroSAG} className={`hover:bg-gray-50 transition-colors ${productoSeleccionado?.numeroSAG === producto.numeroSAG ? 'bg-green-50' : ''}`}>
+                          <td className="px-3 py-2">
+                            <span className="font-mono text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">{producto.numeroSAG}</span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className="font-medium text-gray-800 text-xs">{producto.nombreComercial}</span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.text}`}>
+                              {badge.label}
                             </span>
-                          ) : (
-                            <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                              ✓ No
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => {
-                              setProductoSeleccionado(producto);
-                              setActiveTab('avisaje');
-                            }}
-                            className="px-3 py-1.5 bg-green-600 text-white text-xs rounded-lg hover:bg-green-700 transition-colors"
-                          >
-                            Seleccionar
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-3 py-2">
+                            {producto.requiereAviso ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                                ⚠️ Sí
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                ✓ No
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              onClick={() => { setProductoSeleccionado(producto); setActiveTab('avisaje'); }}
+                              className="px-2.5 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
+                            >
+                              Usar
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-                <span className="text-xs text-gray-500">
-                  Mostrando {Math.min(50, productosFiltrados.length)} de {productosFiltrados.length} productos
-                </span>
-                {productosFiltrados.length > 50 && (
-                  <span className="text-xs text-amber-600">
-                    Use filtros para ver más productos
+
+              {/* Paginación */}
+              {totalPages > 1 && (
+                <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                  <span className="text-xs text-gray-500">
+                    Página {currentPage} de {totalPages} ({productosFiltrados.length} productos)
                   </span>
-                )}
-              </div>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="px-3 py-1 text-xs bg-white border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      ← Anterior
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="px-3 py-1 text-xs bg-white border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Siguiente →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -339,7 +347,6 @@ function App() {
               />
             </div>
             <div className="space-y-4">
-              {/* Lista de campos */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                 <h3 className="font-bold text-gray-800 mb-3">🌾 Campos Registrados</h3>
                 <div className="space-y-2 max-h-[250px] overflow-y-auto">
@@ -355,35 +362,25 @@ function App() {
                     >
                       <div className="font-medium text-sm text-gray-800">{campo.nombre}</div>
                       <div className="text-xs text-gray-500">{campo.comuna} | {campo.hectareas} ha | {campo.cultivo}</div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        📍 {campo.latitud.toFixed(4)}, {campo.longitud.toFixed(4)}
-                      </div>
+                      <div className="text-xs text-gray-400 mt-1">📍 {campo.latitud.toFixed(4)}, {campo.longitud.toFixed(4)}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Info del campo seleccionado */}
               {campoSeleccionado && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                  <h3 className="font-bold text-gray-800 mb-2">📍 Campo Seleccionado</h3>
-                  <div className="space-y-1.5 text-sm">
-                    <p><strong>Nombre:</strong> {campoSeleccionado.nombre}</p>
+                  <h3 className="font-bold text-gray-800 mb-2">📍 {campoSeleccionado.nombre}</h3>
+                  <div className="space-y-1 text-sm text-gray-600">
                     <p><strong>Propietario:</strong> {campoSeleccionado.propietario}</p>
                     <p><strong>Ubicación:</strong> {campoSeleccionado.comuna}, {campoSeleccionado.region}</p>
-                    <p><strong>Cultivo:</strong> {campoSeleccionado.cultivo}</p>
-                    <p><strong>Superficie:</strong> {campoSeleccionado.hectareas} ha</p>
-                    <p><strong>Coordenadas:</strong> {campoSeleccionado.latitud.toFixed(4)}, {campoSeleccionado.longitud.toFixed(4)}</p>
+                    <p><strong>Cultivo:</strong> {campoSeleccionado.cultivo} ({campoSeleccionado.hectareas} ha)</p>
                   </div>
-
                   <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-100">
-                    <p className="font-semibold text-red-700 text-sm">
-                      🐝 Apiarios en zona de influencia ({ZONA_AVISAJE_KM} km):
-                    </p>
-                    <p className="text-2xl font-bold text-red-600">{apiariosEnZona.length}</p>
+                    <p className="font-semibold text-red-700 text-sm">🐝 Apiarios en zona ({ZONA_AVISAJE_KM} km): <span className="text-lg">{apiariosEnZona.length}</span></p>
                     {apiariosEnZona.map(a => (
                       <div key={a.id} className="text-xs text-red-600 mt-1">
-                        • {a.nombre} - {a.apicultor} ({a.cantidadColmenas} colmenas)
+                        • {a.nombre} - {a.apicultor} ({a.cantidadColmenas} colm.)
                         <span className="text-gray-500 ml-1">
                           [{calcularDistanciaKm(campoSeleccionado.latitud, campoSeleccionado.longitud, a.latitud, a.longitud).toFixed(1)} km]
                         </span>
@@ -399,71 +396,45 @@ function App() {
         {/* Tab: Avisaje */}
         {activeTab === 'avisaje' && (
           <div className="space-y-4">
-            {/* Producto seleccionado */}
             {productoSeleccionado && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                 <div className="flex items-start justify-between flex-wrap gap-3">
                   <div>
                     <h3 className="font-bold text-gray-800 text-lg">🧪 Producto Seleccionado</h3>
-                    <p className="text-gray-600">{productoSeleccionado.nombreComercial} - {productoSeleccionado.ingredienteActivo}</p>
+                    <p className="text-gray-600">N° SAG: {productoSeleccionado.numeroSAG} - {productoSeleccionado.nombreComercial}</p>
                   </div>
-                  <span
-                    className="px-3 py-1.5 rounded-full text-sm font-bold text-white"
-                    style={{ backgroundColor: getToxicidadColor(productoSeleccionado.toxicidadAbejas) }}
-                  >
-                    {getToxicidadLabel(productoSeleccionado.toxicidadAbejas)}
+                  <span className={`px-3 py-1.5 rounded-full text-sm font-bold ${
+                    productoSeleccionado.toxicidadAbejas.includes('Muy') ? 'bg-red-100 text-red-700' :
+                    productoSeleccionado.toxicidadAbejas.includes('Moderadamente') ? 'bg-amber-100 text-amber-700' :
+                    productoSeleccionado.toxicidadAbejas.includes('Ligeramente') ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-green-100 text-green-700'
+                  }`}>
+                    {productoSeleccionado.toxicidadAbejas}
                   </span>
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="bg-gray-50 rounded-lg p-2.5">
-                    <p className="text-xs text-gray-500">Categoría</p>
-                    <p className="font-semibold text-sm">{productoSeleccionado.categoria}</p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-2.5">
-                    <p className="text-xs text-gray-500">DL50 Contacto</p>
-                    <p className="font-semibold text-sm">{productoSeleccionado.dl50Contacto}</p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-2.5">
-                    <p className="text-xs text-gray-500">Registro SAG</p>
-                    <p className="font-semibold text-sm">{productoSeleccionado.registroSAG}</p>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-2.5">
-                    <p className="text-xs text-gray-500">Empresa</p>
-                    <p className="font-semibold text-sm">{productoSeleccionado.empresa}</p>
-                  </div>
                 </div>
 
                 {/* Determinación de aviso */}
                 <div className={`mt-4 p-4 rounded-xl border-2 ${
-                  productoSeleccionado.requiereAviso
-                    ? 'bg-red-50 border-red-200'
-                    : 'bg-green-50 border-green-200'
+                  productoSeleccionado.requiereAviso ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'
                 }`}>
                   {productoSeleccionado.requiereAviso ? (
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl">⚠️</span>
-                        <div>
-                          <p className="font-bold text-red-700">SE REQUIERE AVISAJE OBLIGATORIO</p>
-                          <p className="text-sm text-red-600">
-                            Este producto está clasificado como <strong>{getToxicidadLabel(productoSeleccionado.toxicidadAbejas)}</strong> para abejas.
-                            Debe avisar con al menos <strong>48 horas de anticipación</strong> a los apicultores en la zona de influencia.
-                          </p>
-                          <p className="text-xs text-red-500 mt-1">
-                            Vigencia aviso: {productoSeleccionado.fechaInicioAviso}
-                          </p>
-                        </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-3xl">⚠️</span>
+                      <div>
+                        <p className="font-bold text-red-700 text-lg">SE REQUIERE AVISAJE OBLIGATORIO</p>
+                        <p className="text-sm text-red-600 mt-1">
+                          Este producto está clasificado como <strong>{productoSeleccionado.toxicidadAbejas}</strong> para abejas.
+                          Debe avisar con al menos <strong>48 horas de anticipación</strong> a los apicultores registrados en SIPEC dentro de la zona de influencia.
+                        </p>
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">✅</span>
+                    <div className="flex items-start gap-3">
+                      <span className="text-3xl">✅</span>
                       <div>
-                        <p className="font-bold text-green-700">NO SE REQUIERE AVISAJE</p>
-                        <p className="text-sm text-green-600">
-                          Este producto está clasificado como <strong>Prácticamente No Tóxico</strong> para abejas.
-                          No es obligatorio notificar a los apicultores.
+                        <p className="font-bold text-green-700 text-lg">NO SE REQUIERE AVISAJE</p>
+                        <p className="text-sm text-green-600 mt-1">
+                          {productoSeleccionado.avisaje}
                         </p>
                       </div>
                     </div>
@@ -475,501 +446,278 @@ function App() {
             {!productoSeleccionado && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center">
                 <p className="text-4xl mb-3">🧪</p>
-                <p className="text-gray-600 mb-4">Primero seleccione un producto químico desde la pestaña "Productos SAG"</p>
-                <button
-                  onClick={() => setActiveTab('productos')}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                >
+                <p className="text-gray-600 mb-4">Seleccione un producto desde la pestaña "Productos SAG"</p>
+                <button onClick={() => setActiveTab('productos')} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
                   Ir a Productos SAG
                 </button>
               </div>
             )}
 
             {/* Formulario de avisaje */}
-            {productoSeleccionado && requiereAviso && (
+            {productoSeleccionado && productoSeleccionado.requiereAviso && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                 <h3 className="font-bold text-gray-800 text-lg mb-4">📨 Generar Aviso de Aplicación</h3>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Selección de campo */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Campo a tratar</label>
                     <select
                       value={campoSeleccionado?.id || ''}
-                      onChange={(e) => {
-                        const campo = camposEjemplo.find(c => c.id === e.target.value);
-                        setCampoSeleccionado(campo || null);
-                      }}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
+                      onChange={(e) => setCampoSeleccionado(camposEjemplo.find(c => c.id === e.target.value) || null)}
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm"
                     >
                       <option value="">Seleccione un campo...</option>
-                      {camposEjemplo.map(campo => (
-                        <option key={campo.id} value={campo.id}>
-                          {campo.nombre} - {campo.comuna} ({campo.hectareas} ha)
-                        </option>
-                      ))}
+                      {camposEjemplo.map(c => <option key={c.id} value={c.id}>{c.nombre} - {c.comuna}</option>)}
                     </select>
                   </div>
-
-                  {/* Fecha de aplicación */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de aplicación</label>
-                    <input
-                      type="date"
-                      value={fechaAplicacion}
-                      onChange={(e) => setFechaAplicacion(e.target.value)}
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de aplicación (mín. 48h)</label>
+                    <input type="date" value={fechaAplicacion} onChange={(e) => setFechaAplicacion(e.target.value)}
                       min={new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Mínimo 48 horas desde hoy (requisito legal)</p>
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm" />
                   </div>
-
-                  {/* Hora de aplicación */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Hora de aplicación</label>
-                    <select
-                      value={horaAplicacion}
-                      onChange={(e) => setHoraAplicacion(e.target.value)}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
-                    >
-                      <option value="">Seleccione horario...</option>
-                      <option value="05:00-07:00">🌅 Madrugada (05:00 - 07:00) - Recomendado</option>
-                      <option value="19:00-21:00">🌇 Atardecer (19:00 - 21:00) - Recomendado</option>
-                      <option value="21:00-05:00">🌙 Noche (21:00 - 05:00)</option>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Horario (baja actividad abejas)</label>
+                    <select value={horaAplicacion} onChange={(e) => setHoraAplicacion(e.target.value)}
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm">
+                      <option value="">Seleccione...</option>
+                      <option value="05:00-07:00">🌅 Madrugada (05:00-07:00)</option>
+                      <option value="19:00-21:00">🌇 Atardecer (19:00-21:00)</option>
+                      <option value="21:00-05:00">🌙 Noche (21:00-05:00)</option>
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">Solo en horarios de baja actividad de abejas</p>
                   </div>
-
-                  {/* Medio de notificación */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Medio de notificación</label>
-                    <div className="space-y-2 mt-2">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" defaultChecked className="rounded text-green-600" />
-                        📧 Correo electrónico
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" defaultChecked className="rounded text-green-600" />
-                        📱 Mensaje de texto (SMS)
-                      </label>
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" className="rounded text-green-600" />
-                        📝 Notificación presencial
-                      </label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Medio verificable</label>
+                    <div className="space-y-1 mt-2">
+                      <label className="flex items-center gap-2 text-sm"><input type="checkbox" defaultChecked /> 📧 Email</label>
+                      <label className="flex items-center gap-2 text-sm"><input type="checkbox" defaultChecked /> 📱 SMS</label>
+                      <label className="flex items-center gap-2 text-sm"><input type="checkbox" /> 📝 Presencial</label>
                     </div>
                   </div>
                 </div>
 
-                {/* Apiarios a notificar */}
                 {campoSeleccionado && (
-                  <div className="mt-5 p-4 bg-amber-50 rounded-xl border border-amber-200">
-                    <h4 className="font-semibold text-amber-800 mb-2">
-                      🐝 Apicultores a notificar (zona {ZONA_AVISAJE_KM} km)
-                    </h4>
+                  <div className="mt-4 p-4 bg-amber-50 rounded-xl border border-amber-200">
+                    <h4 className="font-semibold text-amber-800 mb-2">🐝 Apicultores a notificar ({apiariosEnZona.length} en zona {ZONA_AVISAJE_KM} km)</h4>
                     {apiariosEnZona.length > 0 ? (
                       <div className="space-y-2">
-                        {apiariosEnZona.map(apiario => (
-                          <div key={apiario.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-amber-100 flex-wrap gap-2">
+                        {apiariosEnZona.map(a => (
+                          <div key={a.id} className="flex justify-between bg-white p-2.5 rounded-lg border border-amber-100 text-sm">
                             <div>
-                              <p className="font-medium text-sm text-gray-800">{apiario.nombre}</p>
-                              <p className="text-xs text-gray-500">
-                                {apiario.apicultor} | {apiario.cantidadColmenas} colmenas |{' '}
-                                {calcularDistanciaKm(
-                                  campoSeleccionado.latitud, campoSeleccionado.longitud,
-                                  apiario.latitud, apiario.longitud
-                                ).toFixed(1)} km
-                              </p>
+                              <p className="font-medium">{a.nombre}</p>
+                              <p className="text-xs text-gray-500">{a.apicultor} | {a.cantidadColmenas} colmenas | {calcularDistanciaKm(campoSeleccionado.latitud, campoSeleccionado.longitud, a.latitud, a.longitud).toFixed(1)} km</p>
                             </div>
-                            <div className="text-right">
-                              <p className="text-xs text-gray-500">{apiario.contactoEmail}</p>
-                              <p className="text-xs text-gray-500">{apiario.contactoTelefono}</p>
-                              {apiario.sipecRegistrado && (
-                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">SIPEC ✓</span>
-                              )}
+                            <div className="text-right text-xs text-gray-500">
+                              <p>{a.contactoEmail}</p>
+                              <p>{a.contactoTelefono}</p>
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-amber-600">
-                        No se encontraron apiarios registrados en SIPEC dentro de la zona de influencia de {ZONA_AVISAJE_KM} km.
-                      </p>
+                      <p className="text-sm text-amber-600">No hay apiarios SIPEC en la zona de influencia.</p>
                     )}
                   </div>
                 )}
 
-                {/* Botón enviar aviso */}
-                <div className="mt-5 flex items-center justify-between flex-wrap gap-3">
-                  <div className="text-xs text-gray-500">
-                    {campoSeleccionado && productoSeleccionado && fechaAplicacion && horaAplicacion
-                      ? '✓ Todos los campos completos'
-                      : '⚠️ Complete todos los campos requeridos'
-                    }
-                  </div>
-                  <button
-                    onClick={handleEnviarAviso}
-                    disabled={!campoSeleccionado || !fechaAplicacion || !horaAplicacion || apiariosEnZona.length === 0}
-                    className="px-6 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shadow-sm"
-                  >
+                <div className="mt-4 flex justify-end">
+                  <button onClick={handleEnviarAviso}
+                    disabled={!campoSeleccionado || !fechaAplicacion || !horaAplicacion}
+                    className="px-6 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:bg-gray-300 transition-colors">
                     📨 Enviar Aviso a Apicultores
                   </button>
                 </div>
 
-                {/* Confirmación */}
                 {avisoEnviado && (
                   <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl">
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">✅</span>
-                      <div>
-                        <p className="font-bold text-green-700">¡Aviso enviado exitosamente!</p>
-                        <p className="text-sm text-green-600">
-                          Se notificó a {apiariosEnZona.length} apicultor(es) sobre la aplicación de{' '}
-                          <strong>{productoSeleccionado.nombreComercial}</strong> en{' '}
-                          <strong>{campoSeleccionado?.nombre}</strong> para el{' '}
-                          <strong>{fechaAplicacion}</strong>.
-                        </p>
-                      </div>
-                    </div>
+                    <p className="font-bold text-green-700">✅ ¡Aviso enviado exitosamente!</p>
+                    <p className="text-sm text-green-600">
+                      Se notificó a {apiariosEnZona.length} apicultor(es) sobre {productoSeleccionado.nombreComercial} en {campoSeleccionado?.nombre}.
+                    </p>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Historial de avisos */}
+            {/* Historial */}
             {avisos.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                <h3 className="font-bold text-gray-800 text-lg mb-3">📋 Historial de Avisos Enviados</h3>
-                <div className="space-y-2">
-                  {avisos.map(aviso => {
-                    const producto = productos.find(p => p.id === aviso.productoId);
-                    const campo = camposEjemplo.find(c => c.id === aviso.campoId);
-                    return (
-                      <div key={aviso.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div>
-                            <p className="font-medium text-sm">{producto?.nombreComercial} - {campo?.nombre}</p>
-                            <p className="text-xs text-gray-500">
-                              Aplicación: {aviso.fechaAplicacion} a las {aviso.horaAplicacion} |
-                              Notificados: {aviso.apicultoresNotificados.length} apicultores
-                            </p>
-                          </div>
-                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-medium">
-                            ✓ Enviado
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <h3 className="font-bold text-gray-800 mb-3">📋 Historial ({avisos.length})</h3>
+                {avisos.map(a => {
+                  const prod = productosNormalizados.find(p => p.numeroSAG === a.productoId);
+                  const campo = camposEjemplo.find(c => c.id === a.campoId);
+                  return (
+                    <div key={a.id} className="p-3 bg-gray-50 rounded-lg mb-2 text-sm">
+                      <p className="font-medium">{prod?.nombreComercial} → {campo?.nombre}</p>
+                      <p className="text-xs text-gray-500">{a.fechaAplicacion} | {a.apicultoresNotificados.length} notificados</p>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-        {/* Tab: Info Toxicidad */}
+        {/* Tab: Info */}
         {activeTab === 'info' && (
           <div className="space-y-4">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h2 className="text-lg font-bold text-gray-800 mb-2">ℹ️ Clasificación de Toxicidad para Abejas</h2>
-              <p className="text-sm text-gray-600 mb-4">
-                Según la Resolución Exenta N°7068/2024 del SAG y la Ley Apícola N°21.489, los plaguicidas se clasifican
-                en 4 categorías según su toxicidad para abejas (DL50 contacto agudo):
-              </p>
-
+              <h2 className="text-lg font-bold text-gray-800 mb-4">ℹ️ Clasificación de Toxicidad para Abejas (Res. 7068/2024)</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {clasificacionesToxicidad.map(clasif => (
-                  <div
-                    key={clasif.nivel}
-                    className="p-4 rounded-xl border-2"
-                    style={{ borderColor: clasif.color + '40', backgroundColor: clasif.color + '08' }}
-                  >
+                {clasificacionesToxicidad.map(c => (
+                  <div key={c.nivel} className="p-4 rounded-xl border-2" style={{ borderColor: c.color + '40', backgroundColor: c.color + '08' }}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span
-                        className="w-4 h-4 rounded-full"
-                        style={{ backgroundColor: clasif.color }}
-                      ></span>
-                      <h3 className="font-bold text-gray-800">{clasif.label}</h3>
+                      <span className="w-4 h-4 rounded-full" style={{ backgroundColor: c.color }}></span>
+                      <h3 className="font-bold">{c.label}</h3>
                     </div>
-                    <p className="text-sm text-gray-600 mb-2"><strong>Rango:</strong> {clasif.rango}</p>
-                    <p className="text-sm text-gray-600 mb-2">{clasif.descripcion}</p>
-                    <div className="flex items-center gap-2 mt-3 flex-wrap">
-                      {clasif.requiereAviso ? (
-                        <span className="px-2.5 py-1 bg-red-100 text-red-700 text-xs rounded-full font-medium">
-                          ⚠️ Requiere aviso
-                        </span>
+                    <p className="text-sm text-gray-600">{c.rango}</p>
+                    <p className="text-sm text-gray-600 mt-1">{c.descripcion}</p>
+                    <div className="mt-2 flex gap-2 flex-wrap">
+                      {c.requiereAviso ? (
+                        <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">⚠️ Requiere aviso</span>
                       ) : (
-                        <span className="px-2.5 py-1 bg-green-100 text-green-700 text-xs rounded-full font-medium">
-                          ✓ No requiere aviso
-                        </span>
+                        <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">✓ Sin aviso</span>
                       )}
-                      {clasif.fechaAviso && (
-                        <span className="text-xs text-gray-500">
-                          Desde: {clasif.fechaAviso}
-                        </span>
-                      )}
+                      {c.fechaAviso && <span className="text-xs text-gray-500">Desde: {c.fechaAviso}</span>}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Normativa */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h3 className="font-bold text-gray-800 mb-3">📜 Marco Legal</h3>
-              <div className="space-y-3 text-sm text-gray-600">
-                <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-                  <p className="font-semibold text-blue-800">Ley Apícola N°21.489</p>
-                  <p className="text-blue-700">De promoción, protección y fomento de la actividad apícola. Promulgada el 4 de octubre de 2022.</p>
+              <h3 className="font-bold text-gray-800 mb-3">📊 Resumen de la Base de Datos</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-3 bg-blue-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-blue-600">{stats.total}</p>
+                  <p className="text-xs text-gray-500">Total Productos</p>
                 </div>
-                <div className="p-3 bg-purple-50 rounded-lg border border-purple-100">
-                  <p className="font-semibold text-purple-800">Resolución Exenta N°7068/2024</p>
-                  <p className="text-purple-700">Establece obligaciones para compraventa, almacenaje, manipulación y aplicación de plaguicidas de uso agrícola.</p>
+                <div className="p-3 bg-red-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-red-600">{stats.requierenAviso}</p>
+                  <p className="text-xs text-gray-500">Requieren Avisaje</p>
                 </div>
-                <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
-                  <p className="font-semibold text-amber-800">Obligaciones del avisaje:</p>
-                  <ul className="list-disc list-inside text-amber-700 mt-1 space-y-1">
-                    <li>El aviso debe realizarse con al menos <strong>48 horas de anticipación</strong></li>
-                    <li>Debe ser mediante un <strong>medio verificable</strong> (email, SMS, escrito)</li>
-                    <li>La responsabilidad recae en <strong>quien aplica el plaguicida</strong></li>
-                    <li>Aplicación solo en <strong>horarios de baja actividad</strong> de abejas (madrugada/atardecer)</li>
-                    <li>Zona de influencia: apiarios dentro de <strong>3 km</strong> del predio</li>
-                  </ul>
+                <div className="p-3 bg-green-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-green-600">{stats.noRequierenAviso}</p>
+                  <p className="text-xs text-gray-500">No Requieren</p>
                 </div>
+                <div className="p-3 bg-amber-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-amber-600">{Object.keys(stats.porToxicidad).length}</p>
+                  <p className="text-xs text-gray-500">Categorías</p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <h4 className="font-semibold text-sm mb-2">Distribución por toxicidad:</h4>
+                {Object.entries(stats.porToxicidad).sort((a, b) => b[1] - a[1]).map(([tox, count]) => (
+                  <div key={tox} className="flex items-center justify-between py-1 border-b border-gray-50">
+                    <span className="text-sm text-gray-600">{tox}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-32 bg-gray-200 rounded-full h-2">
+                        <div className="h-2 rounded-full" style={{ width: `${(count / stats.total) * 100}%`, backgroundColor: getToxicidadColor(tox) }}></div>
+                      </div>
+                      <span className="text-sm font-medium w-12 text-right">{count}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {/* Sistema SIPEC */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h3 className="font-bold text-gray-800 mb-3">🐝 SIPEC Apícola</h3>
-              <p className="text-sm text-gray-600 mb-3">
-                El Sistema de Información del Patrimonio Pecuario (SIPEC) es el registro obligatorio donde los apicultores
-                deben inscribir sus apiarios y colmenas. Esta información es la base para el sistema de avisaje.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="p-3 bg-gray-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-green-600">{apiariosEjemplo.length}</p>
-                  <p className="text-xs text-gray-500">Apiarios registrados (demo)</p>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-amber-600">
-                    {apiariosEjemplo.reduce((acc, a) => acc + a.cantidadColmenas, 0)}
-                  </p>
-                  <p className="text-xs text-gray-500">Colmenas totales (demo)</p>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-blue-600">{camposEjemplo.length}</p>
-                  <p className="text-xs text-gray-500">Campos registrados (demo)</p>
-                </div>
-              </div>
-              <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-100">
-                <p className="text-sm text-green-700">
-                  <strong>Enlaces oficiales:</strong>
-                </p>
-                <div className="mt-1 space-y-1">
-                  <a href="https://cpa.sag.gob.cl" target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:underline block">
-                    🔗 Sistema Consulta Para Avisaje (CPA) - cpa.sag.gob.cl
-                  </a>
-                  <a href="https://sipecweb.sag.gob.cl" target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:underline block">
-                    🔗 SIPEC Apícola - sipecweb.sag.gob.cl
-                  </a>
-                  <a href="https://www.sag.gob.cl/ambitos-de-accion/aviso-aplicaciones-de-plaguicidas-toxico-y-moderadamente-toxicos-para-las-abeja" target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:underline block">
-                    🔗 Info oficial SAG sobre avisaje
-                  </a>
-                </div>
+              <h3 className="font-bold text-gray-800 mb-3">🔗 Enlaces Oficiales</h3>
+              <div className="space-y-2">
+                <a href="https://cpa.sag.gob.cl" target="_blank" rel="noopener noreferrer" className="block p-3 bg-green-50 rounded-lg border border-green-100 hover:bg-green-100 transition-colors">
+                  <p className="font-semibold text-green-800 text-sm">🔗 Sistema Consulta Para Avisaje (CPA)</p>
+                  <p className="text-xs text-green-600">cpa.sag.gob.cl</p>
+                </a>
+                <a href="https://www.sag.gob.cl/content/reporte-de-plaguicidas-clasificados-segun-toxicidad-en-abejas" target="_blank" rel="noopener noreferrer" className="block p-3 bg-blue-50 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
+                  <p className="font-semibold text-blue-800 text-sm">🔗 Reporte Toxicidad Abejas (Power BI)</p>
+                  <p className="text-xs text-blue-600">Base de datos oficial SAG actualizada</p>
+                </a>
+                <a href="http://www.sag.gob.cl/content/planilla-resumida-de-plaguicidas-autorizados" target="_blank" rel="noopener noreferrer" className="block p-3 bg-purple-50 rounded-lg border border-purple-100 hover:bg-purple-100 transition-colors">
+                  <p className="font-semibold text-purple-800 text-sm">🔗 Planilla Plaguicidas Autorizados (Excel)</p>
+                  <p className="text-xs text-purple-600">Descarga directa XLSX</p>
+                </a>
+                <a href="https://sipecweb.sag.gob.cl" target="_blank" rel="noopener noreferrer" className="block p-3 bg-amber-50 rounded-lg border border-amber-100 hover:bg-amber-100 transition-colors">
+                  <p className="font-semibold text-amber-800 text-sm">🔗 SIPEC Apícola</p>
+                  <p className="text-xs text-amber-600">Registro de apiarios y colmenas</p>
+                </a>
               </div>
             </div>
           </div>
         )}
 
-        {/* Tab: Actualizar Datos */}
+        {/* Tab: Actualizar */}
         {activeTab === 'actualizar' && (
           <div className="space-y-4">
-            {/* Estadísticas */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h2 className="text-lg font-bold text-gray-800 mb-3">📊 Estadísticas de la Base de Datos</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="p-3 bg-blue-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-blue-600">{stats.totalProductos}</p>
-                  <p className="text-xs text-gray-500">Total Productos</p>
-                </div>
-                <div className="p-3 bg-red-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-red-600">{stats.requierenAviso}</p>
-                  <p className="text-xs text-gray-500">Requieren Aviso</p>
-                </div>
-                <div className="p-3 bg-green-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-green-600">{stats.noRequierenAviso}</p>
-                  <p className="text-xs text-gray-500">No Requieren Aviso</p>
-                </div>
-                <div className="p-3 bg-amber-50 rounded-lg text-center">
-                  <p className="text-2xl font-bold text-amber-600">{Object.keys(stats.porCategoria).length}</p>
-                  <p className="text-xs text-gray-500">Categorías</p>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Por Categoría:</h4>
-                  <div className="space-y-1">
-                    {Object.entries(stats.porCategoria).map(([cat, count]) => (
-                      <div key={cat} className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600">{cat}</span>
-                        <span className="font-medium">{count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Por Toxicidad:</h4>
-                  <div className="space-y-1">
-                    {Object.entries(stats.porToxicidad).map(([tox, count]) => (
-                      <div key={tox} className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600">{getToxicidadLabel(tox as ToxicidadAbejas)}</span>
-                        <span className="font-medium">{count}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Importar CSV */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h3 className="font-bold text-gray-800 mb-3">📥 Importar Datos desde CSV</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Importe productos desde un archivo CSV con los datos del SAG. Descargue la plantilla para ver el formato requerido.
-              </p>
-
-              <div className="flex gap-3 flex-wrap">
-                <button
-                  onClick={handleDownloadTemplate}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                >
-                  📄 Descargar Plantilla CSV
-                </button>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                >
-                  📂 Importar CSV
-                </button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv"
-                  onChange={handleImportCSV}
-                  className="hidden"
-                />
-              </div>
-
-              {importResult && (
-                <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-semibold text-sm">Resultado de importación:</p>
-                    <div className="flex gap-2">
-                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
-                        ✓ {importResult.exito} exitosos
-                      </span>
-                      <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">
-                        ✗ {importResult.errores} errores
-                      </span>
-                    </div>
-                  </div>
-                  <div className="max-h-40 overflow-y-auto">
-                    {importResult.detalles.slice(0, 10).map((detalle, i) => (
-                      <p key={i} className="text-xs text-gray-600">{detalle}</p>
-                    ))}
-                    {importResult.detalles.length > 10 && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        ... y {importResult.detalles.length - 10} más
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Fuentes de datos externas */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h3 className="font-bold text-gray-800 mb-3">🔗 Fuentes de Datos Oficiales</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Acceda a las fuentes oficiales del SAG para obtener datos actualizados de productos fitosanitarios.
-              </p>
-
-              <div className="space-y-3">
-                {fuentesDatosExternas.map(fuente => (
-                  <div key={fuente.id} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <div>
-                        <p className="font-medium text-sm text-gray-800">{fuente.nombre}</p>
-                        <p className="text-xs text-gray-500">Tipo: {fuente.tipo.toUpperCase()}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-1 text-xs rounded-full ${
-                          fuente.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
-                        }`}>
-                          {fuente.estado === 'activo' ? '✓ Activo' : 'Inactivo'}
-                        </span>
-                        <a
-                          href={fuente.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                          Visitar →
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <p className="font-semibold text-blue-800 text-sm mb-2">🔄 Actualización Automática desde SAG</p>
-                <p className="text-xs text-blue-700 mb-3">
-                  Conecte directamente con la base de datos Power BI del SAG para obtener datos en tiempo real.
+              <h2 className="text-lg font-bold text-gray-800 mb-3">🔄 Actualización de Base de Datos</h2>
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 mb-4">
+                <p className="font-semibold text-blue-800">📊 Estado actual:</p>
+                <p className="text-sm text-blue-700 mt-1">
+                  Base de datos cargada: <strong>{stats.total} productos</strong> del Power BI SAG (actualizado al 30/04/2026).
+                  De estos, <strong>{stats.requierenAviso} requieren avisaje</strong> obligatorio.
                 </p>
-                <button
-                  onClick={handleFetchFromSAG}
-                  disabled={isFetching}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 transition-colors text-sm"
-                >
-                  {isFetching ? '⏳ Conectando...' : '🔄 Sincronizar con SAG'}
+              </div>
+
+              <h3 className="font-bold text-gray-800 mb-3">📥 Importar nuevos datos</h3>
+              <p className="text-sm text-gray-600 mb-3">
+                Para mantener la base de datos actualizada, descargue la planilla oficial del SAG e impórtela aquí:
+              </p>
+              <div className="flex gap-3 flex-wrap">
+                <a href="https://www.sag.gob.cl/sites/default/files/2026-04-30%20Lista%20plaguicidas%20seg%C3%BAn%20su%20clasificaci%C3%B3n%20ecotox.xlsx"
+                  target="_blank" rel="noopener noreferrer"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
+                  📥 Descargar desde SAG
+                </a>
+                <button onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
+                  📂 Importar CSV actualizado
                 </button>
+                <input ref={fileInputRef} type="file" accept=".csv,.xlsx" onChange={handleImportCSV} className="hidden" />
               </div>
             </div>
 
-            {/* Instrucciones */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-              <h3 className="font-bold text-gray-800 mb-3">📋 Instrucciones de Actualización</h3>
-              <div className="space-y-3 text-sm text-gray-600">
+              <h3 className="font-bold text-gray-800 mb-3">📋 Instrucciones de actualización</h3>
+              <div className="space-y-3">
                 <div className="p-3 bg-green-50 rounded-lg border border-green-100">
-                  <p className="font-semibold text-green-800 mb-1">Paso 1: Descargar datos del SAG</p>
-                  <p className="text-green-700">
-                    Visite el sitio oficial del SAG y descargue la "Planilla resumida de plaguicidas autorizados" 
-                    en formato Excel desde: <a href="http://www.sag.gob.cl/content/planilla-resumida-de-plaguicidas-autorizados" target="_blank" rel="noopener noreferrer" className="underline">sag.gob.cl</a>
-                  </p>
+                  <p className="font-semibold text-green-800 text-sm">1. Descargar datos oficiales</p>
+                  <p className="text-xs text-green-700">Visite el Power BI del SAG o descargue la planilla Excel actualizada.</p>
                 </div>
                 <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-                  <p className="font-semibold text-blue-800 mb-1">Paso 2: Convertir a CSV</p>
-                  <p className="text-blue-700">
-                    Abra el archivo Excel en su programa de hojas de cálculo y guárdelo como CSV (delimitado por comas).
-                    Asegúrese de que las columnas coincidan con la plantilla proporcionada.
-                  </p>
+                  <p className="font-semibold text-blue-800 text-sm">2. Convertir a CSV</p>
+                  <p className="text-xs text-blue-700">Guarde como CSV con columnas: N° SAG, Nombre Comercial, Toxicidad Abejas, Avisaje</p>
                 </div>
                 <div className="p-3 bg-purple-50 rounded-lg border border-purple-100">
-                  <p className="font-semibold text-purple-800 mb-1">Paso 3: Importar datos</p>
-                  <p className="text-purple-700">
-                    Use el botón "Importar CSV" en esta aplicación para cargar los nuevos productos. 
-                    El sistema calculará automáticamente la toxicidad para abejas basándose en los valores DL50.
-                  </p>
+                  <p className="font-semibold text-purple-800 text-sm">3. Importar datos</p>
+                  <p className="text-xs text-purple-700">Use el botón "Importar CSV" para actualizar la base de datos.</p>
                 </div>
                 <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
-                  <p className="font-semibold text-amber-800 mb-1">Paso 4: Verificar y usar</p>
-                  <p className="text-amber-700">
-                    Revise los productos importados en la pestaña "Productos SAG" y utilícelos para generar avisos 
-                    de aplicación en la sección de "Avisaje Apícola".
-                  </p>
+                  <p className="font-semibold text-amber-800 text-sm">4. Verificar y usar</p>
+                  <p className="text-xs text-amber-700">Revise los productos actualizados y utilícelos para el avisaje.</p>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <h3 className="font-bold text-gray-800 mb-3">🔗 Fuentes de datos oficiales</h3>
+              <div className="space-y-2">
+                <a href="https://app.powerbi.com/view?r=eyJrIjoiMTA4ZDRjOWItODE3Yy00NjZlLTg3Y2ItZTgzY2QxY2M4YWQ1IiwidCI6Ijc3ZWNkYTc1LTU5NjQtNDIyYS1hNTM1LTZlYTY3MTU0MDI5YyIsImMiOjR9"
+                  target="_blank" rel="noopener noreferrer"
+                  className="block p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100">
+                  <p className="font-medium text-sm">📊 Power BI - Clasificación Ecotoxicológica Abejas</p>
+                  <p className="text-xs text-gray-500">app.powerbi.com - Datos en tiempo real del SAG</p>
+                </a>
+                <a href="https://app.powerbi.com/view?r=eyJrIjoiNzAxNTc2MjEtYmQ0ZS00YzZkLWJlMGYtNjZhZDE1YzhmYWViIiwidCI6Ijc3ZWNkYTc1LTU4NjQtNDIyYS1hNTM1LTZlYTY3MTU0MDI5YyIsImMiOjR9"
+                  target="_blank" rel="noopener noreferrer"
+                  className="block p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100">
+                  <p className="font-medium text-sm">📊 Power BI - Reporte Plaguicidas Autorizados</p>
+                  <p className="text-xs text-gray-500">app.powerbi.com - Todos los productos registrados</p>
+                </a>
+                <a href="http://www.sag.gob.cl/content/planilla-resumida-de-plaguicidas-autorizados"
+                  target="_blank" rel="noopener noreferrer"
+                  className="block p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100">
+                  <p className="font-medium text-sm">📋 Planilla Resumida de Plaguicidas Autorizados</p>
+                  <p className="text-xs text-gray-500">sag.gob.cl - Archivo Excel actualizado mensualmente</p>
+                </a>
               </div>
             </div>
           </div>
@@ -980,10 +728,10 @@ function App() {
       <footer className="bg-white border-t border-gray-100 mt-8 py-4">
         <div className="max-w-7xl mx-auto px-4 text-center">
           <p className="text-xs text-gray-500">
-            Sistema de Avisaje Apícola - Basado en Ley Apícola N°21.489 y Resolución SAG N°7068/2024
+            Sistema de Avisaje Apícola | Ley Apícola N°21.489 | Res. SAG N°7068/2024
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            Datos de productos basados en registros oficiales del SAG. Última actualización: {stats.ultimaActualizacion.toLocaleDateString('es-CL')}
+            Base de datos: {stats.total} productos | Fuente: Power BI SAG (30/04/2026)
           </p>
         </div>
       </footer>

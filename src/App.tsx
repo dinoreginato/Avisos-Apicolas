@@ -1,12 +1,20 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import MapView from './components/MapView';
 import {
-  productosQuimicos,
+  productosQuimicos as productosIniciales,
   clasificacionesToxicidad,
   ProductoQuimico,
   ToxicidadAbejas,
   CategoriaProducto
 } from './data/products';
+import {
+  parseCSV,
+  generarPlantillaCSV,
+  fetchFromSAGAPI,
+  fuentesDatosExternas,
+  calcularEstadisticas,
+  ImportResult
+} from './data/dataManager';
 import {
   camposEjemplo,
   apiariosEjemplo,
@@ -18,7 +26,7 @@ import {
   AvisoAplicacion
 } from './data/fields';
 
-type Tab = 'productos' | 'campos' | 'avisaje' | 'info';
+type Tab = 'productos' | 'campos' | 'avisaje' | 'info' | 'actualizar';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('productos');
@@ -31,10 +39,15 @@ function App() {
   const [avisos, setAvisos] = useState<AvisoAplicacion[]>([]);
   const [fechaAplicacion, setFechaAplicacion] = useState('');
   const [horaAplicacion, setHoraAplicacion] = useState('');
+  const [productos, setProductos] = useState<ProductoQuimico[]>(productosIniciales);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filtrar productos
   const productosFiltrados = useMemo(() => {
-    return productosQuimicos.filter(p => {
+    return productos.filter(p => {
       const matchSearch = p.nombreComercial.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.ingredienteActivo.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.empresa.toLowerCase().includes(searchTerm.toLowerCase());
@@ -42,13 +55,16 @@ function App() {
       const matchToxicidad = !filterToxicidad || p.toxicidadAbejas === filterToxicidad;
       return matchSearch && matchCategoria && matchToxicidad;
     });
-  }, [searchTerm, filterCategoria, filterToxicidad]);
+  }, [productos, searchTerm, filterCategoria, filterToxicidad]);
 
   // Apiarios en zona del campo seleccionado
   const apiariosEnZona = useMemo(() => {
     if (!campoSeleccionado) return [];
     return getApiariosEnZona(campoSeleccionado, apiariosEjemplo);
   }, [campoSeleccionado]);
+
+  // Estadísticas
+  const stats = useMemo(() => calcularEstadisticas(productos), [productos]);
 
   // Verificar si se requiere aviso
   const requiereAviso = useMemo(() => {
@@ -86,12 +102,48 @@ function App() {
     setTimeout(() => setAvisoEnviado(false), 5000);
   };
 
+  const handleImportCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      const result = parseCSV(text);
+      setImportResult(result);
+      
+      if (result.productos.length > 0) {
+        // Agregar productos importados a la base de datos
+        setProductos(prev => [...prev, ...result.productos]);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDownloadTemplate = () => {
+    const template = generarPlantillaCSV();
+    const blob = new Blob([template], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'plantilla_productos_sag.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFetchFromSAG = async () => {
+    setIsFetching(true);
+    const result = await fetchFromSAGAPI();
+    setImportResult(result);
+    setIsFetching(false);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-amber-50 to-blue-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-green-100">
         <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center text-2xl shadow-lg">
                 🐝
@@ -101,11 +153,18 @@ function App() {
                 <p className="text-xs text-gray-500">Conectado con base de datos SAG - Ley Apícola N°21.489</p>
               </div>
             </div>
-            <div className="hidden md:flex items-center gap-2 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
-              <span className="text-amber-600">⚠️</span>
-              <span className="text-xs text-amber-700 font-medium">
-                Aviso obligatorio: Tóxicos desde 26/01/2026 | Moderados desde 26/04/2026
-              </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="bg-green-50 px-3 py-2 rounded-lg border border-green-200">
+                <span className="text-xs text-green-700 font-medium">
+                  📊 {stats.totalProductos} productos | ⚠️ {stats.requierenAviso} requieren aviso
+                </span>
+              </div>
+              <div className="hidden md:flex items-center gap-2 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
+                <span className="text-amber-600">⚠️</span>
+                <span className="text-xs text-amber-700 font-medium">
+                  Aviso obligatorio: Tóxicos 26/01/2026 | Moderados 26/04/2026
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -114,17 +173,18 @@ function App() {
       {/* Navigation Tabs */}
       <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex gap-1">
+          <div className="flex gap-1 overflow-x-auto">
             {[
               { id: 'productos' as Tab, label: 'Productos SAG', icon: '🧪' },
               { id: 'campos' as Tab, label: 'Campos y Mapa', icon: '🗺️' },
               { id: 'avisaje' as Tab, label: 'Avisaje Apícola', icon: '📨' },
               { id: 'info' as Tab, label: 'Info Toxicidad', icon: 'ℹ️' },
+              { id: 'actualizar' as Tab, label: 'Actualizar Datos', icon: '🔄' },
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-all ${
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-all whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'border-green-500 text-green-700 bg-green-50'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
@@ -148,7 +208,7 @@ function App() {
                 🧪 Base de Datos de Productos Fitosanitarios - SAG
               </h2>
               <p className="text-sm text-gray-600 mb-4">
-                Consulta los productos químicos registrados, sus ingredientes activos y clasificación de toxicidad para abejas según la Resolución 7068/2024.
+                Consulta los {stats.totalProductos} productos químicos registrados, sus ingredientes activos y clasificación de toxicidad para abejas según la Resolución 7068/2024.
               </p>
 
               {/* Filtros */}
@@ -196,13 +256,13 @@ function App() {
                       <th className="text-left px-4 py-3 font-semibold text-gray-700">Ingrediente Activo</th>
                       <th className="text-left px-4 py-3 font-semibold text-gray-700">Categoría</th>
                       <th className="text-left px-4 py-3 font-semibold text-gray-700">Toxicidad Abejas</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-700">DL50</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-700">DL50 Contacto</th>
                       <th className="text-left px-4 py-3 font-semibold text-gray-700">Aviso</th>
                       <th className="text-left px-4 py-3 font-semibold text-gray-700">Acción</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {productosFiltrados.map(producto => (
+                    {productosFiltrados.slice(0, 50).map(producto => (
                       <tr key={producto.id} className={`hover:bg-gray-50 transition-colors ${productoSeleccionado?.id === producto.id ? 'bg-green-50' : ''}`}>
                         <td className="px-4 py-3">
                           <div className="font-medium text-gray-800">{producto.nombreComercial}</div>
@@ -222,15 +282,15 @@ function App() {
                             {getToxicidadLabel(producto.toxicidadAbejas)}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-600 text-xs">{producto.dl50Oral}</td>
+                        <td className="px-4 py-3 text-gray-600 text-xs">{producto.dl50Contacto}</td>
                         <td className="px-4 py-3">
                           {producto.requiereAviso ? (
                             <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                              ⚠️ Sí requiere
+                              ⚠️ Sí
                             </span>
                           ) : (
                             <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                              ✓ No requiere
+                              ✓ No
                             </span>
                           )}
                         </td>
@@ -250,8 +310,15 @@ function App() {
                   </tbody>
                 </table>
               </div>
-              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
-                Mostrando {productosFiltrados.length} de {productosQuimicos.length} productos
+              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                <span className="text-xs text-gray-500">
+                  Mostrando {Math.min(50, productosFiltrados.length)} de {productosFiltrados.length} productos
+                </span>
+                {productosFiltrados.length > 50 && (
+                  <span className="text-xs text-amber-600">
+                    Use filtros para ver más productos
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -335,7 +402,7 @@ function App() {
             {/* Producto seleccionado */}
             {productoSeleccionado && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between flex-wrap gap-3">
                   <div>
                     <h3 className="font-bold text-gray-800 text-lg">🧪 Producto Seleccionado</h3>
                     <p className="text-gray-600">{productoSeleccionado.nombreComercial} - {productoSeleccionado.ingredienteActivo}</p>
@@ -354,8 +421,8 @@ function App() {
                     <p className="font-semibold text-sm">{productoSeleccionado.categoria}</p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-2.5">
-                    <p className="text-xs text-gray-500">DL50 Oral</p>
-                    <p className="font-semibold text-sm">{productoSeleccionado.dl50Oral}</p>
+                    <p className="text-xs text-gray-500">DL50 Contacto</p>
+                    <p className="font-semibold text-sm">{productoSeleccionado.dl50Contacto}</p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-2.5">
                     <p className="text-xs text-gray-500">Registro SAG</p>
@@ -502,7 +569,7 @@ function App() {
                     {apiariosEnZona.length > 0 ? (
                       <div className="space-y-2">
                         {apiariosEnZona.map(apiario => (
-                          <div key={apiario.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-amber-100">
+                          <div key={apiario.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-amber-100 flex-wrap gap-2">
                             <div>
                               <p className="font-medium text-sm text-gray-800">{apiario.nombre}</p>
                               <p className="text-xs text-gray-500">
@@ -532,7 +599,7 @@ function App() {
                 )}
 
                 {/* Botón enviar aviso */}
-                <div className="mt-5 flex items-center justify-between">
+                <div className="mt-5 flex items-center justify-between flex-wrap gap-3">
                   <div className="text-xs text-gray-500">
                     {campoSeleccionado && productoSeleccionado && fechaAplicacion && horaAplicacion
                       ? '✓ Todos los campos completos'
@@ -574,11 +641,11 @@ function App() {
                 <h3 className="font-bold text-gray-800 text-lg mb-3">📋 Historial de Avisos Enviados</h3>
                 <div className="space-y-2">
                   {avisos.map(aviso => {
-                    const producto = productosQuimicos.find(p => p.id === aviso.productoId);
+                    const producto = productos.find(p => p.id === aviso.productoId);
                     const campo = camposEjemplo.find(c => c.id === aviso.campoId);
                     return (
                       <div key={aviso.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                           <div>
                             <p className="font-medium text-sm">{producto?.nombreComercial} - {campo?.nombre}</p>
                             <p className="text-xs text-gray-500">
@@ -606,7 +673,7 @@ function App() {
               <h2 className="text-lg font-bold text-gray-800 mb-2">ℹ️ Clasificación de Toxicidad para Abejas</h2>
               <p className="text-sm text-gray-600 mb-4">
                 Según la Resolución Exenta N°7068/2024 del SAG y la Ley Apícola N°21.489, los plaguicidas se clasifican
-                en 4 categorías según su toxicidad para abejas (DL50 oral aguda):
+                en 4 categorías según su toxicidad para abejas (DL50 contacto agudo):
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -625,7 +692,7 @@ function App() {
                     </div>
                     <p className="text-sm text-gray-600 mb-2"><strong>Rango:</strong> {clasif.rango}</p>
                     <p className="text-sm text-gray-600 mb-2">{clasif.descripcion}</p>
-                    <div className="flex items-center gap-2 mt-3">
+                    <div className="flex items-center gap-2 mt-3 flex-wrap">
                       {clasif.requiereAviso ? (
                         <span className="px-2.5 py-1 bg-red-100 text-red-700 text-xs rounded-full font-medium">
                           ⚠️ Requiere aviso
@@ -713,6 +780,200 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* Tab: Actualizar Datos */}
+        {activeTab === 'actualizar' && (
+          <div className="space-y-4">
+            {/* Estadísticas */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <h2 className="text-lg font-bold text-gray-800 mb-3">📊 Estadísticas de la Base de Datos</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="p-3 bg-blue-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-blue-600">{stats.totalProductos}</p>
+                  <p className="text-xs text-gray-500">Total Productos</p>
+                </div>
+                <div className="p-3 bg-red-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-red-600">{stats.requierenAviso}</p>
+                  <p className="text-xs text-gray-500">Requieren Aviso</p>
+                </div>
+                <div className="p-3 bg-green-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-green-600">{stats.noRequierenAviso}</p>
+                  <p className="text-xs text-gray-500">No Requieren Aviso</p>
+                </div>
+                <div className="p-3 bg-amber-50 rounded-lg text-center">
+                  <p className="text-2xl font-bold text-amber-600">{Object.keys(stats.porCategoria).length}</p>
+                  <p className="text-xs text-gray-500">Categorías</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Por Categoría:</h4>
+                  <div className="space-y-1">
+                    {Object.entries(stats.porCategoria).map(([cat, count]) => (
+                      <div key={cat} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">{cat}</span>
+                        <span className="font-medium">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-sm text-gray-700 mb-2">Por Toxicidad:</h4>
+                  <div className="space-y-1">
+                    {Object.entries(stats.porToxicidad).map(([tox, count]) => (
+                      <div key={tox} className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600">{getToxicidadLabel(tox as ToxicidadAbejas)}</span>
+                        <span className="font-medium">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Importar CSV */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <h3 className="font-bold text-gray-800 mb-3">📥 Importar Datos desde CSV</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Importe productos desde un archivo CSV con los datos del SAG. Descargue la plantilla para ver el formato requerido.
+              </p>
+
+              <div className="flex gap-3 flex-wrap">
+                <button
+                  onClick={handleDownloadTemplate}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                >
+                  📄 Descargar Plantilla CSV
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                >
+                  📂 Importar CSV
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={handleImportCSV}
+                  className="hidden"
+                />
+              </div>
+
+              {importResult && (
+                <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-semibold text-sm">Resultado de importación:</p>
+                    <div className="flex gap-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
+                        ✓ {importResult.exito} exitosos
+                      </span>
+                      <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">
+                        ✗ {importResult.errores} errores
+                      </span>
+                    </div>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto">
+                    {importResult.detalles.slice(0, 10).map((detalle, i) => (
+                      <p key={i} className="text-xs text-gray-600">{detalle}</p>
+                    ))}
+                    {importResult.detalles.length > 10 && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        ... y {importResult.detalles.length - 10} más
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Fuentes de datos externas */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <h3 className="font-bold text-gray-800 mb-3">🔗 Fuentes de Datos Oficiales</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Acceda a las fuentes oficiales del SAG para obtener datos actualizados de productos fitosanitarios.
+              </p>
+
+              <div className="space-y-3">
+                {fuentesDatosExternas.map(fuente => (
+                  <div key={fuente.id} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <p className="font-medium text-sm text-gray-800">{fuente.nombre}</p>
+                        <p className="text-xs text-gray-500">Tipo: {fuente.tipo.toUpperCase()}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-1 text-xs rounded-full ${
+                          fuente.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {fuente.estado === 'activo' ? '✓ Activo' : 'Inactivo'}
+                        </span>
+                        <a
+                          href={fuente.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                          Visitar →
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                <p className="font-semibold text-blue-800 text-sm mb-2">🔄 Actualización Automática desde SAG</p>
+                <p className="text-xs text-blue-700 mb-3">
+                  Conecte directamente con la base de datos Power BI del SAG para obtener datos en tiempo real.
+                </p>
+                <button
+                  onClick={handleFetchFromSAG}
+                  disabled={isFetching}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 transition-colors text-sm"
+                >
+                  {isFetching ? '⏳ Conectando...' : '🔄 Sincronizar con SAG'}
+                </button>
+              </div>
+            </div>
+
+            {/* Instrucciones */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <h3 className="font-bold text-gray-800 mb-3">📋 Instrucciones de Actualización</h3>
+              <div className="space-y-3 text-sm text-gray-600">
+                <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                  <p className="font-semibold text-green-800 mb-1">Paso 1: Descargar datos del SAG</p>
+                  <p className="text-green-700">
+                    Visite el sitio oficial del SAG y descargue la "Planilla resumida de plaguicidas autorizados" 
+                    en formato Excel desde: <a href="http://www.sag.gob.cl/content/planilla-resumida-de-plaguicidas-autorizados" target="_blank" rel="noopener noreferrer" className="underline">sag.gob.cl</a>
+                  </p>
+                </div>
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                  <p className="font-semibold text-blue-800 mb-1">Paso 2: Convertir a CSV</p>
+                  <p className="text-blue-700">
+                    Abra el archivo Excel en su programa de hojas de cálculo y guárdelo como CSV (delimitado por comas).
+                    Asegúrese de que las columnas coincidan con la plantilla proporcionada.
+                  </p>
+                </div>
+                <div className="p-3 bg-purple-50 rounded-lg border border-purple-100">
+                  <p className="font-semibold text-purple-800 mb-1">Paso 3: Importar datos</p>
+                  <p className="text-purple-700">
+                    Use el botón "Importar CSV" en esta aplicación para cargar los nuevos productos. 
+                    El sistema calculará automáticamente la toxicidad para abejas basándose en los valores DL50.
+                  </p>
+                </div>
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+                  <p className="font-semibold text-amber-800 mb-1">Paso 4: Verificar y usar</p>
+                  <p className="text-amber-700">
+                    Revise los productos importados en la pestaña "Productos SAG" y utilícelos para generar avisos 
+                    de aplicación en la sección de "Avisaje Apícola".
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Footer */}
@@ -722,7 +983,7 @@ function App() {
             Sistema de Avisaje Apícola - Basado en Ley Apícola N°21.489 y Resolución SAG N°7068/2024
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            Datos de productos basados en registros oficiales del SAG. Aplicación de demostración.
+            Datos de productos basados en registros oficiales del SAG. Última actualización: {stats.ultimaActualizacion.toLocaleDateString('es-CL')}
           </p>
         </div>
       </footer>

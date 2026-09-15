@@ -2,6 +2,10 @@ import { ApicultorSIPEC } from '../types/fields';
 import { apicultoresOHiggins } from './apicultoresOHiggins';
 import { apicultoresMaule } from './apicultoresMaule';
 import { apicultoresAraucania } from './apicultoresAraucania';
+import { apicultoresOHigginsExpandido } from './apicultoresOHigginsExpandido';
+import { apicultoresMauleExpandido } from './apicultoresMauleExpandido';
+import { apicultoresAraucaniaExpandido } from './apicultoresAraucaniaExpandido';
+import { getApicultoresFromStorage } from '../services/apicultorService';
 
 // Base de datos de apicultores registrados en SIPEC por región
 // Fuente: SAG - Boletín Apícola N°8 (mayo 2023) - SIPEC Apícola
@@ -874,12 +878,18 @@ export const apicultoresSIPEC: ApicultorSIPEC[] = [
   
   // Apicultores expandidos de O'Higgins (30 apicultores adicionales)
   ...apicultoresOHiggins,
+  ...apicultoresOHigginsExpandido,
   
   // Apicultores expandidos de Maule (10 apicultores adicionales)
   ...apicultoresMaule,
+  ...apicultoresMauleExpandido,
   
   // Apicultores expandidos de Araucanía (10 apicultores adicionales)
-  ...apicultoresAraucania
+  ...apicultoresAraucania,
+  ...apicultoresAraucaniaExpandido,
+  
+  // Apicultores importados por el usuario (desde localStorage)
+  ...getApicultoresFromStorage()
 ];
 
 // Función para obtener apicultores por región

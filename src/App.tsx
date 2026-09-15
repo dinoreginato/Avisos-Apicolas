@@ -3,6 +3,7 @@ import MapView from './components/MapView';
 import AuthScreen from './components/AuthScreen';
 import UserProfile from './components/UserProfile';
 import CampoManager from './components/CampoManager';
+import DataImport from './components/DataImport';
 import { productosSAGCompletos, normalizarToxicidad, requiereAvisaje, ProductoSAG } from './data/sagProducts';
 import { productosSAGComplemento } from './data/sagProductsExtra';
 import { productosSAGMas } from './data/sagProductsMas';
@@ -55,6 +56,7 @@ function App() {
   const [vistaPrevia, setVistaPrevia] = useState<'whatsapp' | 'email' | null>(null);
   const [notificarSAG, setNotificarSAG] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [dataVersion, setDataVersion] = useState(0);
   const itemsPerPage = 50;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1114,17 +1116,40 @@ function App() {
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
               <h2 className="text-lg font-bold text-gray-800 mb-3">🔄 Actualización de Base de Datos</h2>
               <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 mb-4">
+                <p className="text-sm text-blue-700 mb-2">
+                  <strong>Productos:</strong> {stats.total} productos del Power BI SAG (30/04/2026).
+                </p>
+                <p className="text-sm text-blue-700 mb-2">
+                  <strong>Avisaje:</strong> {stats.requierenAviso} productos requieren avisaje obligatorio.
+                </p>
                 <p className="text-sm text-blue-700">
-                  Base de datos: <strong>{stats.total} productos</strong> del Power BI SAG (30/04/2026).
-                  {stats.requierenAviso} requieren avisaje obligatorio.
+                  <strong>Apicultores:</strong> {apicultoresSIPEC.length} apicultores registrados en la base de datos.
                 </p>
               </div>
-              <a href="https://www.sag.gob.cl/sites/default/files/2026-04-30%20Lista%20plaguicidas%20seg%C3%BAn%20su%20clasificaci%C3%B3n%20ecotox.xlsx"
-                target="_blank" rel="noopener noreferrer"
-                className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-                📥 Descargar desde SAG
-              </a>
+              
+              <div className="flex flex-wrap gap-3 mb-4">
+                <a href="https://www.sag.gob.cl/sites/default/files/2026-04-30%20Lista%20plaguicidas%20seg%C3%BAn%20su%20clasificaci%C3%B3n%20ecotox.xlsx"
+                  target="_blank" rel="noopener noreferrer"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
+                  📥 Descargar Productos SAG
+                </a>
+                <button
+                  onClick={() => setDataVersion(v => v + 1)}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                >
+                  🔄 Actualizar Base de Datos
+                </button>
+              </div>
+
+              <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                <p className="text-sm text-amber-800 mb-2">
+                  <strong>💡 Nota:</strong> La base de datos incluye apicultores de ejemplo. Para agregar todos los apiarios registrados en el SAG, 
+                  descargue los datos oficiales y use el formulario de importación below.
+                </p>
+              </div>
             </div>
+
+            <DataImport onImportComplete={() => setDataVersion(v => v + 1)} />
           </div>
         )}
 

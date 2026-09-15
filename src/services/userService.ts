@@ -1,4 +1,5 @@
 import { User, AvisoEnviado, PlantillaMensaje } from '../types/user';
+import { getCorreosCC } from '../data/contactosSAG';
 
 const USERS_KEY = 'sag_users';
 const CURRENT_USER_KEY = 'sag_current_user';
@@ -281,6 +282,35 @@ export function generarLinkEmail(email: string, asunto: string, mensaje: string)
   const mensajeCodificado = encodeURIComponent(mensaje);
   
   return `mailto:${email}?subject=${asuntoCodificado}&body=${mensajeCodificado}&content-type=text/html`;
+}
+
+// Generar enlace de email con CC a contactos del SAG
+export function generarLinkEmailConCC(
+  email: string, 
+  asunto: string, 
+  mensaje: string,
+  region: string
+): string {
+  const asuntoCodificado = encodeURIComponent(asunto);
+  const mensajeCodificado = encodeURIComponent(mensaje);
+  
+  // Obtener correos CC del SAG para la región
+  const correosCC = getCorreosCC(region);
+  const ccString = correosCC.map(email => encodeURIComponent(email)).join(',');
+  
+  return `mailto:${email}?subject=${asuntoCodificado}&body=${mensajeCodificado}&cc=${ccString}&content-type=text/html`;
+}
+
+// Generar enlace de email solo para SAG (sin destinatario principal)
+export function generarLinkEmailSAG(asunto: string, mensaje: string, region: string): string {
+  const asuntoCodificado = encodeURIComponent(asunto);
+  const mensajeCodificado = encodeURIComponent(mensaje);
+  
+  // Obtener correos del SAG para la región
+  const correosCC = getCorreosCC(region);
+  const destinatarios = correosCC.map(email => encodeURIComponent(email)).join(',');
+  
+  return `mailto:${destinatarios}?subject=${asuntoCodificado}&body=${mensajeCodificado}&content-type=text/html`;
 }
 
 // ========== ESTADÍSTICAS ==========

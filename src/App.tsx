@@ -23,8 +23,11 @@ import {
   generarMensaje,
   generarAsuntoEmail,
   generarLinkWhatsApp,
-  generarLinkEmail
+  generarLinkEmail,
+  generarLinkEmailConCC,
+  generarLinkEmailSAG
 } from './services/userService';
+import { getContactoSAG, contactosSAG } from './data/contactosSAG';
 
 // Combinar todos los productos del SAG
 const todosLosProductosSAG: ProductoSAG[] = [...productosSAGCompletos, ...productosSAGComplemento, ...productosSAGMas];
@@ -50,6 +53,7 @@ function App() {
   const [avisoEnviado, setAvisoEnviado] = useState(false);
   const [medioEnvio, setMedioEnvio] = useState<{ whatsapp: boolean; email: boolean }>({ whatsapp: true, email: true });
   const [vistaPrevia, setVistaPrevia] = useState<'whatsapp' | 'email' | null>(null);
+  const [notificarSAG, setNotificarSAG] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const itemsPerPage = 50;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -235,11 +239,29 @@ function App() {
           window.open(link, '_blank');
         }
         if (medioEnvio.email) {
-          const link = generarLinkEmail(apiario.apicultorEmail, asuntoEmail, mensajeEmail);
-          window.open(link, '_blank');
+          // Si está activada la opción de notificar al SAG, usar CC
+          if (notificarSAG && campoSeleccionado) {
+            const link = generarLinkEmailConCC(
+              apiario.apicultorEmail, 
+              asuntoEmail, 
+              mensajeEmail,
+              campoSeleccionado.region
+            );
+            window.open(link, '_blank');
+          } else {
+            const link = generarLinkEmail(apiario.apicultorEmail, asuntoEmail, mensajeEmail);
+            window.open(link, '_blank');
+          }
         }
         apicultoresNotificados.push(apiario.apicultorNombre);
       });
+
+      // Enviar copia al SAG si está activado
+      if (notificarSAG && campoSeleccionado) {
+        const asuntoSAG = `[COPIA AVISO] ${asuntoEmail}`;
+        const linkSAG = generarLinkEmailSAG(asuntoSAG, mensajeEmail, campoSeleccionado.region);
+        window.open(linkSAG, '_blank');
+      }
 
       // Guardar aviso en historial
       saveAviso({
@@ -741,6 +763,45 @@ function App() {
                       </label>
                     </div>
 
+                    {/* Opción de notificar al SAG */}
+                    {campoSeleccionado && (
+                      <div className="mt-4">
+                        <label className={`flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer ${
+                          notificarSAG ? 'border-purple-500 bg-purple-50' : 'border-gray-200'
+                        }`}>
+                          <input 
+                            type="checkbox" 
+                            checked={notificarSAG}
+                            onChange={(e) => setNotificarSAG(e.target.checked)}
+                            className="w-5 h-5 text-purple-600 rounded mt-0.5"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-purple-900">🏛️ Notificar al SAG Regional</span>
+                              <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full">Recomendado</span>
+                            </div>
+                            <p className="text-xs text-gray-600 mb-2">
+                              Enviar copia del aviso a la oficina del SAG de {campoSeleccionado.region}
+                            </p>
+                            {(() => {
+                              const contactoSAG = getContactoSAG(campoSeleccionado.region);
+                              if (contactoSAG) {
+                                return (
+                                  <div className="text-xs text-gray-500 space-y-1 mt-2 p-2 bg-white rounded border border-purple-100">
+                                    <p><strong>Email:</strong> {contactoSAG.emailContacto}</p>
+                                    <p><strong>Oficina de Partes:</strong> {contactoSAG.emailOficinaPartes}</p>
+                                    <p><strong>Teléfono:</strong> {contactoSAG.telefono}</p>
+                                    <p><strong>Dirección:</strong> {contactoSAG.direccion}</p>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
+                        </label>
+                      </div>
+                    )}
+
                     {/* Vista previa */}
                     <div className="mt-4">
                       <div className="flex gap-2 mb-3">
@@ -787,6 +848,11 @@ function App() {
                         <p className="font-bold text-green-700">✅ ¡Avisos enviados exitosamente!</p>
                         <p className="text-sm text-green-600">
                           Se notificó a {apiariosEnZona.length} apicultor(es) sobre {productoSeleccionado.nombreComercial}.
+                          {notificarSAG && campoSeleccionado && (
+                            <span className="block mt-1">
+                              🏛️ Copia enviada al SAG {campoSeleccionado.region}
+                            </span>
+                          )}
                         </p>
                       </div>
                     )}
@@ -987,6 +1053,42 @@ function App() {
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+              <h3 className="font-bold text-gray-800 mb-3">🏛️ Contactos SAG por Región</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Direcciones regionales del SAG para notificación de avisos de aplicación de plaguicidas
+              </p>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {Object.entries(contactosSAG).map(([region, contacto]: [string, any]) => (
+                  <div key={region} className="p-3 bg-purple-50 rounded-lg border border-purple-100">
+                    <p className="font-semibold text-purple-900 text-sm mb-2">{region}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-700">
+                      <div>
+                        <p><strong>Email Contacto:</strong></p>
+                        <a href={`mailto:${contacto.emailContacto}`} className="text-purple-600 hover:underline break-all">
+                          {contacto.emailContacto}
+                        </a>
+                      </div>
+                      <div>
+                        <p><strong>Oficina de Partes:</strong></p>
+                        <a href={`mailto:${contacto.emailOficinaPartes}`} className="text-purple-600 hover:underline break-all">
+                          {contacto.emailOficinaPartes}
+                        </a>
+                      </div>
+                      <div>
+                        <p><strong>Teléfono:</strong></p>
+                        <p className="text-gray-600">{contacto.telefono}</p>
+                      </div>
+                      <div>
+                        <p><strong>Dirección:</strong></p>
+                        <p className="text-gray-600 text-xs">{contacto.direccion}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
               <h3 className="font-bold text-gray-800 mb-3">🔗 Enlaces Oficiales</h3>
               <div className="space-y-2">
                 <a href="https://cpa.sag.gob.cl" target="_blank" rel="noopener noreferrer" className="block p-3 bg-green-50 rounded-lg border border-green-100 hover:bg-green-100">
@@ -996,6 +1098,10 @@ function App() {
                 <a href="https://sipecweb.sag.gob.cl" target="_blank" rel="noopener noreferrer" className="block p-3 bg-amber-50 rounded-lg border border-amber-100 hover:bg-amber-100">
                   <p className="font-semibold text-amber-800 text-sm">🔗 SIPEC Apícola</p>
                   <p className="text-xs text-amber-600">Registro oficial de apiarios</p>
+                </a>
+                <a href="https://www.sag.gob.cl/directorio-de-oficinas" target="_blank" rel="noopener noreferrer" className="block p-3 bg-purple-50 rounded-lg border border-purple-100 hover:bg-purple-100">
+                  <p className="font-semibold text-purple-800 text-sm">🏛️ Directorio de Oficinas SAG</p>
+                  <p className="text-xs text-purple-600">Contactos regionales completos</p>
                 </a>
               </div>
             </div>

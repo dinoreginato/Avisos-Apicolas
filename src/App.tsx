@@ -53,20 +53,6 @@ function App() {
     }
   }, []);
 
-  const handleLogin = (user: User) => {
-    setCurrentUser(user);
-  };
-
-  const handleLogout = () => {
-    logoutUser();
-    setCurrentUser(null);
-  };
-
-  // Si no hay usuario, mostrar pantalla de autenticación
-  if (!currentUser) {
-    return <AuthScreen onLogin={handleLogin} />;
-  }
-
   // Combinar y normalizar productos
   const productosNormalizados: ProductoNormalizado[] = useMemo(() => {
     return todosLosProductosSAG.map(p => ({
@@ -121,6 +107,20 @@ function App() {
     if (!campoSeleccionado) return [];
     return getApiariosEnZona(campoSeleccionado, apiariosEjemplo);
   }, [campoSeleccionado]);
+
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setCurrentUser(null);
+  };
+
+  // Si no hay usuario, mostrar pantalla de autenticación
+  if (!currentUser) {
+    return <AuthScreen onLogin={handleLogin} />;
+  }
 
   const getToxicidadColor = (nivel: string) => {
     if (nivel.includes('Muy tóxico')) return '#dc2626';

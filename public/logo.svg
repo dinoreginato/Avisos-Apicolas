@@ -1,0 +1,65 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#059669;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#10b981;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="beeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f59e0b;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="512" height="512" rx="64" fill="url(#bgGradient)"/>
+  
+  <!-- Wheat stalks -->
+  <g opacity="0.3">
+    <path d="M 100 400 Q 120 300 140 200" stroke="#fff" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <ellipse cx="140" cy="180" rx="12" ry="20" fill="#fff"/>
+    <ellipse cx="135" cy="200" rx="10" ry="18" fill="#fff"/>
+    <ellipse cx="145" cy="200" rx="10" ry="18" fill="#fff"/>
+    
+    <path d="M 400 400 Q 380 300 360 200" stroke="#fff" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <ellipse cx="360" cy="180" rx="12" ry="20" fill="#fff"/>
+    <ellipse cx="355" cy="200" rx="10" ry="18" fill="#fff"/>
+    <ellipse cx="365" cy="200" rx="10" ry="18" fill="#fff"/>
+  </g>
+  
+  <!-- Bee body -->
+  <ellipse cx="256" cy="280" rx="80" ry="100" fill="url(#beeGradient)"/>
+  
+  <!-- Bee stripes -->
+  <rect x="176" y="240" width="160" height="20" rx="10" fill="#1f2937"/>
+  <rect x="176" y="280" width="160" height="20" rx="10" fill="#1f2937"/>
+  <rect x="176" y="320" width="160" height="20" rx="10" fill="#1f2937"/>
+  
+  <!-- Bee head -->
+  <circle cx="256" cy="180" r="50" fill="#1f2937"/>
+  
+  <!-- Bee eyes -->
+  <circle cx="236" cy="170" r="12" fill="#fff"/>
+  <circle cx="276" cy="170" r="12" fill="#fff"/>
+  <circle cx="236" cy="170" r="6" fill="#000"/>
+  <circle cx="276" cy="170" r="6" fill="#000"/>
+  
+  <!-- Bee antennae -->
+  <path d="M 236 140 Q 220 100 210 80" stroke="#1f2937" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <path d="M 276 140 Q 292 100 302 80" stroke="#1f2937" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <circle cx="210" cy="80" r="8" fill="#1f2937"/>
+  <circle cx="302" cy="80" r="8" fill="#1f2937"/>
+  
+  <!-- Bee wings -->
+  <ellipse cx="180" cy="220" rx="60" ry="80" fill="#fff" opacity="0.6" transform="rotate(-30 180 220)"/>
+  <ellipse cx="332" cy="220" rx="60" ry="80" fill="#fff" opacity="0.6" transform="rotate(30 332 220)"/>
+  
+  <!-- Bee legs -->
+  <path d="M 200 340 L 180 380" stroke="#1f2937" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 220 360 L 200 400" stroke="#1f2937" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 312 340 L 332 380" stroke="#1f2937" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 292 360 L 312 400" stroke="#1f2937" stroke-width="8" stroke-linecap="round"/>
+  
+  <!-- Shield/badge outline -->
+  <path d="M 256 60 L 380 120 L 380 320 Q 380 420 256 460 Q 132 420 132 320 L 132 120 Z" 
+        stroke="#fff" stroke-width="8" fill="none" opacity="0.4"/>
+</svg>

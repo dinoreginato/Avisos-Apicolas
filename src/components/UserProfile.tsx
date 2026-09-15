@@ -22,28 +22,28 @@ export default function UserProfile({ user, onUpdate, onLogout }: UserProfilePro
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {/* Header con info del usuario */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <div className="flex items-start justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center text-3xl shadow-lg">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center text-2xl sm:text-3xl shadow-lg flex-shrink-0">
               {user.rol === 'aplicador' ? '🌾' : user.rol === 'apicultor' ? '🐝' : '📋'}
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-gray-800">{user.nombre}</h2>
-              <p className="text-sm text-gray-600">
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-gray-800 truncate">{user.nombre}</h2>
+              <p className="text-xs sm:text-sm text-gray-600">
                 {user.rol === 'aplicador' ? 'Aplicador de Plaguicidas' : 
                  user.rol === 'apicultor' ? 'Apicultor' : 'Asesor Técnico'}
               </p>
               {user.empresa && (
-                <p className="text-xs text-gray-500 mt-1">{user.empresa}</p>
+                <p className="text-xs text-gray-500 mt-1 truncate">{user.empresa}</p>
               )}
             </div>
           </div>
           <button
             onClick={onLogout}
-            className="px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium"
+            className="w-full sm:w-auto px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium"
           >
             🚪 Cerrar Sesión
           </button>
@@ -51,21 +51,21 @@ export default function UserProfile({ user, onUpdate, onLogout }: UserProfilePro
       </div>
 
       {/* Estadísticas */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
-          <p className="text-2xl font-bold text-blue-600">{stats.totalAvisos}</p>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 text-center">
+          <p className="text-xl sm:text-2xl font-bold text-blue-600">{stats.totalAvisos}</p>
           <p className="text-xs text-gray-500">Avisos Enviados</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
-          <p className="text-2xl font-bold text-green-600">{stats.avisosEsteMes}</p>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 text-center">
+          <p className="text-xl sm:text-2xl font-bold text-green-600">{stats.avisosEsteMes}</p>
           <p className="text-xs text-gray-500">Este Mes</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
-          <p className="text-2xl font-bold text-amber-600">{stats.apicultoresNotificados}</p>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 text-center">
+          <p className="text-xl sm:text-2xl font-bold text-amber-600">{stats.apicultoresNotificados}</p>
           <p className="text-xs text-gray-500">Apicultores Notificados</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
-          <p className="text-2xl font-bold text-purple-600">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 text-center">
+          <p className="text-xl sm:text-2xl font-bold text-purple-600">
             {stats.ultimoAviso ? new Date(stats.ultimoAviso).toLocaleDateString('es-CL') : 'N/A'}
           </p>
           <p className="text-xs text-gray-500">Último Aviso</p>

@@ -50,6 +50,7 @@ function App() {
   const [avisoEnviado, setAvisoEnviado] = useState(false);
   const [medioEnvio, setMedioEnvio] = useState<{ whatsapp: boolean; email: boolean }>({ whatsapp: true, email: true });
   const [vistaPrevia, setVistaPrevia] = useState<'whatsapp' | 'email' | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const itemsPerPage = 50;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -295,22 +296,25 @@ function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-amber-50 to-blue-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-green-100">
-        <div className="max-w-7xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl flex items-center justify-center text-2xl shadow-lg">
-                🐝
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-800">Sistema de Avisaje Apícola</h1>
-                <p className="text-xs text-gray-500">Usuario: {currentUser.nombre} | {currentUser.region}</p>
+      <header className="bg-white shadow-md border-b-2 border-green-600">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+              <img 
+                src="/logo.svg" 
+                alt="Logo" 
+                className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg shadow-md flex-shrink-0 object-cover"
+              />
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-xl font-bold text-gray-800 truncate">Sistema de Avisaje Apícola</h1>
+                <p className="text-xs text-gray-500 truncate hidden sm:block">Usuario: {currentUser.nombre} | {currentUser.region}</p>
+                <p className="text-xs text-gray-500 truncate sm:hidden">{currentUser.nombre}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="hidden md:flex items-center gap-2 flex-shrink-0">
               <div className="bg-green-50 px-3 py-1.5 rounded-lg border border-green-200">
-                <span className="text-xs text-green-700 font-bold">
-                  📊 {stats.total} productos | ⚠️ {stats.requierenAviso} requieren avisaje
+                <span className="text-xs text-green-700 font-bold whitespace-nowrap">
+                  📊 {stats.total} productos | ⚠️ {stats.requierenAviso}
                 </span>
               </div>
             </div>
@@ -318,8 +322,8 @@ function App() {
         </div>
       </header>
 
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
+      {/* Navigation - Desktop */}
+      <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 hidden md:block">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex gap-1 overflow-x-auto">
             {[
@@ -348,17 +352,86 @@ function App() {
         </div>
       </nav>
 
+      {/* Navigation - Mobile */}
+      <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 md:hidden">
+        <div className="px-3 py-2">
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg border border-gray-200"
+          >
+            <span className="text-sm font-medium text-gray-700">
+              {[
+                { id: 'productos', label: 'Productos SAG', icon: '🧪' },
+                { id: 'misCampos', label: 'Mis Campos', icon: '🌾' },
+                { id: 'avisaje', label: 'Avisaje', icon: '📨' },
+                { id: 'info', label: 'Info', icon: 'ℹ️' },
+                { id: 'actualizar', label: 'Actualizar', icon: '🔄' },
+                { id: 'perfil', label: 'Perfil', icon: '👤' },
+              ].find(t => t.id === activeTab)?.icon}{' '}
+              {[
+                { id: 'productos', label: 'Productos SAG', icon: '🧪' },
+                { id: 'misCampos', label: 'Mis Campos', icon: '🌾' },
+                { id: 'avisaje', label: 'Avisaje', icon: '📨' },
+                { id: 'info', label: 'Info', icon: 'ℹ️' },
+                { id: 'actualizar', label: 'Actualizar', icon: '🔄' },
+                { id: 'perfil', label: 'Perfil', icon: '👤' },
+              ].find(t => t.id === activeTab)?.label}
+            </span>
+            <svg className={`w-5 h-5 text-gray-500 transition-transform ${mobileMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          
+          {mobileMenuOpen && (
+            <div className="mt-2 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+              {[
+                { id: 'productos' as Tab, label: 'Productos SAG', icon: '🧪', count: stats.total },
+                { id: 'misCampos' as Tab, label: 'Mis Campos', icon: '🌾', count: camposUsuario.length },
+                { id: 'avisaje' as Tab, label: 'Avisaje', icon: '📨' },
+                { id: 'info' as Tab, label: 'Info', icon: 'ℹ️' },
+                { id: 'actualizar' as Tab, label: 'Actualizar', icon: '🔄' },
+                { id: 'perfil' as Tab, label: 'Perfil', icon: '👤' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => { 
+                    setActiveTab(tab.id); 
+                    setCurrentPage(1); 
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-4 py-3 text-sm font-medium transition-all border-b border-gray-100 last:border-b-0 ${
+                    activeTab === tab.id
+                      ? 'bg-green-50 text-green-700'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>
+                    <span className="mr-2">{tab.icon}</span>
+                    {tab.label}
+                  </span>
+                  {tab.count !== undefined && (
+                    <span className="text-xs bg-green-200 text-green-800 px-2 py-0.5 rounded-full">
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </nav>
+
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-4">
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 py-3 sm:py-4">
         {/* Tab: Productos SAG */}
         {activeTab === 'productos' && (
           <div className="space-y-3">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-bold text-gray-800">🧪 Clasificación Ecotoxicológica - SAG</h2>
-                <span className="text-xs text-gray-500">Res. 7068/2024</span>
+                <h2 className="text-base sm:text-lg font-bold text-gray-800">🧪 Clasificación Ecotoxicológica - SAG</h2>
+                <span className="text-xs text-gray-500 hidden sm:inline">Res. 7068/2024</span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
                 <input
                   type="text"
                   placeholder="Buscar por N° SAG o nombre..."
@@ -391,15 +464,15 @@ function App() {
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto max-h-[500px] sm:max-h-[600px] overflow-y-auto">
+                <table className="w-full text-xs sm:text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
                     <tr>
-                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">N° SAG</th>
-                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">Nombre Comercial</th>
-                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">Toxicidad</th>
-                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">Avisaje</th>
-                      <th className="text-left px-3 py-2.5 font-semibold text-gray-700 text-xs">Acción</th>
+                      <th className="text-left px-2 sm:px-3 py-2 sm:py-2.5 font-semibold text-gray-700 text-xs">N° SAG</th>
+                      <th className="text-left px-2 sm:px-3 py-2 sm:py-2.5 font-semibold text-gray-700 text-xs">Nombre Comercial</th>
+                      <th className="text-left px-2 sm:px-3 py-2 sm:py-2.5 font-semibold text-gray-700 text-xs">Toxicidad</th>
+                      <th className="text-left px-2 sm:px-3 py-2 sm:py-2.5 font-semibold text-gray-700 text-xs hidden sm:table-cell">Avisaje</th>
+                      <th className="text-left px-2 sm:px-3 py-2 sm:py-2.5 font-semibold text-gray-700 text-xs">Acción</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -407,28 +480,28 @@ function App() {
                       const badge = getToxicidadBadge(producto.toxicidadAbejas);
                       return (
                         <tr key={producto.numeroSAG} className={`hover:bg-gray-50 ${productoSeleccionado?.numeroSAG === producto.numeroSAG ? 'bg-green-50' : ''}`}>
-                          <td className="px-3 py-2">
-                            <span className="font-mono text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">{producto.numeroSAG}</span>
+                          <td className="px-2 sm:px-3 py-2">
+                            <span className="font-mono text-xs text-gray-600 bg-gray-100 px-1 py-0.5 rounded">{producto.numeroSAG}</span>
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-2 sm:px-3 py-2">
                             <span className="font-medium text-gray-800 text-xs">{producto.nombreComercial}</span>
                           </td>
-                          <td className="px-3 py-2">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.text}`}>
+                          <td className="px-2 sm:px-3 py-2">
+                            <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-xs font-medium ${badge.bg} ${badge.text}`}>
                               {badge.label}
                             </span>
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-2 sm:px-3 py-2 hidden sm:table-cell">
                             {producto.requiereAviso ? (
                               <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">⚠️ Sí</span>
                             ) : (
                               <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">✓ No</span>
                             )}
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-2 sm:px-3 py-2">
                             <button
                               onClick={() => { setProductoSeleccionado(producto); setActiveTab('avisaje'); }}
-                              className="px-2.5 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
+                              className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700"
                             >
                               Usar
                             </button>

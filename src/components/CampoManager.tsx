@@ -121,31 +121,31 @@ export default function CampoManager({ user, onCampoSelected }: CampoManagerProp
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {/* Header */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-gray-800">🌾 Mis Campos Registrados</h2>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3 sm:mb-4">
+          <h2 className="text-base sm:text-lg font-bold text-gray-800">🌾 Mis Campos Registrados</h2>
           <button
             onClick={() => setShowForm(!showForm)}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+            className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
           >
             {showForm ? '❌ Cancelar' : '➕ Registrar Nuevo Campo'}
           </button>
         </div>
 
-        <p className="text-sm text-gray-600">
+        <p className="text-xs sm:text-sm text-gray-600">
           Registre sus campos con coordenadas geográficas para enviar avisos a los apicultores en la zona de influencia (3 km).
         </p>
       </div>
 
       {/* Formulario de registro */}
       {showForm && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
           <h3 className="font-bold text-gray-800 mb-4">📝 Registrar Nuevo Campo</h3>
           
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Nombre del Campo *
@@ -269,25 +269,25 @@ export default function CampoManager({ user, onCampoSelected }: CampoManagerProp
       )}
 
       {/* Lista de campos */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <h3 className="font-bold text-gray-800 mb-4">📋 Campos Registrados ({campos.length})</h3>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-5">
+        <h3 className="font-bold text-gray-800 mb-3 sm:mb-4">📋 Campos Registrados ({campos.length})</h3>
         
         {campos.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <p className="text-4xl mb-3">🌾</p>
-            <p>No tiene campos registrados</p>
-            <p className="text-sm mt-2">Registre sus campos para poder enviar avisos a apicultores</p>
+            <p className="text-sm sm:text-base">No tiene campos registrados</p>
+            <p className="text-xs sm:text-sm mt-2">Registre sus campos para poder enviar avisos a apicultores</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2 sm:space-y-3">
             {campos.map(campo => (
-              <div key={campo.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex items-start justify-between flex-wrap gap-3">
-                  <div className="flex-1">
-                    <h4 className="font-semibold text-gray-800">{campo.nombre}</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2 text-sm text-gray-600">
+              <div key={campo.id} className="p-3 sm:p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-semibold text-gray-800 text-sm sm:text-base truncate">{campo.nombre}</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 sm:gap-2 mt-2 text-xs sm:text-sm text-gray-600">
                       <div>
-                        <p><strong>📍 Coordenadas:</strong> {campo.latitud.toFixed(6)}, {campo.longitud.toFixed(6)}</p>
+                        <p><strong>📍 Coordenadas:</strong> <span className="break-all">{campo.latitud.toFixed(4)}, {campo.longitud.toFixed(4)}</span></p>
                         <p><strong>🏘️ Ubicación:</strong> {campo.comuna}, {campo.region}</p>
                       </div>
                       <div>
@@ -299,18 +299,18 @@ export default function CampoManager({ user, onCampoSelected }: CampoManagerProp
                       Registrado: {new Date(campo.fechaRegistro).toLocaleDateString('es-CL')}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-shrink-0">
                     {onCampoSelected && (
                       <button
                         onClick={() => onCampoSelected(campo)}
-                        className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors"
+                        className="flex-1 sm:flex-none px-3 py-1.5 bg-green-600 text-white text-xs sm:text-sm rounded-lg hover:bg-green-700 transition-colors"
                       >
                         Usar
                       </button>
                     )}
                     <button
                       onClick={() => handleDelete(campo.id)}
-                      className="px-3 py-1.5 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 transition-colors"
+                      className="px-3 py-1.5 bg-red-50 text-red-600 text-xs sm:text-sm rounded-lg hover:bg-red-100 transition-colors"
                     >
                       🗑️
                     </button>

@@ -52,19 +52,21 @@ export default function AuthScreen({ onLogin }: AuthScreenProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-amber-50 to-blue-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-amber-50 to-blue-50 flex items-center justify-center p-3 sm:p-4">
       <div className="max-w-md w-full">
         {/* Header */}
-        <div className="text-center mb-8">
-          <div className="w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl flex items-center justify-center text-4xl shadow-lg mx-auto mb-4">
-            🐝
-          </div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Sistema de Avisaje Apícola</h1>
-          <p className="text-gray-600">Conectado con base de datos SAG - Ley Apícola N°21.489</p>
+        <div className="text-center mb-6 sm:mb-8">
+          <img 
+            src="/logo.svg" 
+            alt="Logo" 
+            className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl sm:rounded-2xl shadow-lg mx-auto mb-3 sm:mb-4 object-cover"
+          />
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">Sistema de Avisaje Apícola</h1>
+          <p className="text-sm sm:text-base text-gray-600">Conectado con base de datos SAG - Ley Apícola N°21.489</p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl p-5 sm:p-8">
           {/* Tabs */}
           <div className="flex gap-2 mb-6">
             <button

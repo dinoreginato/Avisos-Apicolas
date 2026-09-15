@@ -5,6 +5,7 @@ import { apicultoresAraucania } from './apicultoresAraucania';
 import { apicultoresOHigginsExpandido } from './apicultoresOHigginsExpandido';
 import { apicultoresMauleExpandido } from './apicultoresMauleExpandido';
 import { apicultoresAraucaniaExpandido } from './apicultoresAraucaniaExpandido';
+import { apiariosRequinoa } from './apiariosRequinoa';
 import { getApicultoresFromStorage } from '../services/apicultorService';
 
 // Base de datos de apicultores registrados en SIPEC por región
@@ -887,6 +888,9 @@ export const apicultoresSIPEC: ApicultorSIPEC[] = [
   // Apicultores expandidos de Araucanía (10 apicultores adicionales)
   ...apicultoresAraucania,
   ...apicultoresAraucaniaExpandido,
+  
+  // Apiarios específicos de Requínoa y zonas cercanas (15 apicultores)
+  ...apiariosRequinoa,
   
   // Apicultores importados por el usuario (desde localStorage)
   ...getApicultoresFromStorage()

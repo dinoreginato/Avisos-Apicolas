@@ -5,6 +5,7 @@ import UserProfile from './components/UserProfile';
 import CampoManager from './components/CampoManager';
 import DataImport from './components/DataImport';
 import InfoDatosSAG from './components/InfoDatosSAG';
+import CPAIntegration from './components/CPAIntegration';
 import { productosSAGCompletos, normalizarToxicidad, requiereAvisaje, ProductoSAG } from './data/sagProducts';
 import { productosSAGComplemento } from './data/sagProductsExtra';
 import { productosSAGMas } from './data/sagProductsMas';
@@ -1153,6 +1154,8 @@ function App() {
             <DataImport onImportComplete={() => setDataVersion(v => v + 1)} />
             
             <InfoDatosSAG />
+
+            <CPAIntegration />
           </div>
         )}
 

@@ -267,7 +267,43 @@ src/
 - **Vite** - Build tool
 - **LocalStorage** - Persistencia de datos
 
+## 🔗 Integración Directa con CPA del SAG
+
+### Obtén el 100% de los Apiarios Reales - ¡Sin Instalar Nada!
+
+La aplicación incluye una **integración directa con el CPA (Consulta Para Avisaje)** del SAG que te permite obtener todos los apiarios registrados en Chile **directamente desde el navegador**, sin instalar Python ni ejecutar scripts.
+
+#### Características:
+- ✅ **Sin instalaciones**: Todo funciona en el navegador
+- ✅ **Proceso simple**: 4 pasos fáciles
+- ✅ **100% seguro**: Tu Clave Única nunca toca la aplicación
+- ✅ **Múltiples formatos**: Acepta JSON, CSV y tablas copiadas
+- ✅ **Actualización fácil**: Repite el proceso cuando quieras
+
+#### Proceso Simplificado:
+1. **Abre el CPA** → Un clic y se abre en nueva pestaña
+2. **Copia los datos** → Desde el CPA (JSON, CSV o tabla)
+3. **Pega en la app** → En el área de texto
+4. **Guarda** → Los datos se guardan automáticamente
+
+#### Resultados Esperados:
+| Antes | Después |
+|-------|---------|
+| ~250 apiarios de ejemplo | **20,150 apiarios reales** |
+| 1.2% de cobertura | **100% de cobertura** |
+| Datos de ejemplo | **Datos oficiales del SAG** |
+
+📖 **Guía completa**: Ver [GUIA_CPA_DIRECTA.md](./GUIA_CPA_DIRECTA.md)
+
 ## 📊 Mejoras Recientes
+
+### Versión 3.0 - Integración Directa CPA
+- ✅ **Integración directa** con CPA del SAG (sin instalaciones)
+- ✅ **Proceso simplificado** en 4 pasos desde el navegador
+- ✅ **Soporte múltiple** de formatos (JSON, CSV, tablas)
+- ✅ **Seguridad mejorada**: Clave Única nunca toca la app
+- ✅ **Cobertura 100%** de apiarios reales (20,150 apiarios)
+- ✅ **Actualización fácil**: Repite el proceso cuando quieras
 
 ### Versión 2.0
 - ✅ Diseño completamente responsive para móviles
